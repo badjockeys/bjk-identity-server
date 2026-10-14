@@ -19,7 +19,8 @@ EMAIL2=rider.two@example.com
 PASSWORD='Passw0rd!'
 NEW_PASSWORD='N3wPassw0rd!'
 
-# Cloudflare's dummy Turnstile token, accepted by the test secret key CI configures (Captcha__TurnstileSecretKey).
+# Cloudflare's dummy Turnstile token. CI configures Cloudflare's "always passes" test secret, which accepts any
+# token, so the rejection path is tested at the end with the "always fails" test secret.
 DUMMY_CAPTCHA='XXXX.DUMMY.TOKEN.XXXX'
 CAPTCHA=$DUMMY_CAPTCHA   # sent as X-Captcha-Token on every request; set to "" to leave it out
 
@@ -40,8 +41,9 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# start_app [VAR=value ...]  - extra settings apply to this run of the app only
 start_app() {
-  dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile >> "$APP_LOG" 2>&1 &
+  env "$@" dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile >> "$APP_LOG" 2>&1 &
   APP_PID=$!
   for _ in $(seq 1 60); do
     if curl -fs "$BASE_URL/health" > /dev/null 2>&1; then echo "ok  app is healthy"; return; fi
@@ -125,11 +127,7 @@ expect 400 "register without a CAPTCHA token is rejected"
 request POST /api/users/password-reset "$(body --arg e "$EMAIL1" '{email: $e}')"
 expect 400 "forgot password without a CAPTCHA token is rejected"
 
-CAPTCHA="not-a-real-token"
-request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p, displayName: "Bot"}')"
-expect 400 "register with an invalid CAPTCHA token is rejected"
-[ "$(json '.errors["X-Captcha-Token"] | length')" -gt 0 ] || fail "Expected a CAPTCHA error, got: $RESPONSE"
-expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 0 "rejected CAPTCHA created no account"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 0 "requests without a CAPTCHA created no account"
 
 CAPTCHA=$DUMMY_CAPTCHA
 
@@ -234,6 +232,16 @@ expect_sql "SELECT COUNT(*) FROM users.Users" 2 "profiles survive a restart"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 2 "accounts survive a restart"
 user_token "$EMAIL1" "$NEW_PASSWORD"
 expect 200 "user 1 still signs in after restart"
+stop_app
+
+# ---------- CAPTCHA rejected by Cloudflare ----------
+
+# Cloudflare's "always fails" test secret makes Cloudflare reject every token, as it would a forged one.
+start_app Captcha__TurnstileSecretKey=2x0000000000000000000000000000000AA
+request POST /api/users "$(body '{email: "bot@example.com", password: "Passw0rd!", displayName: "Bot"}')"
+expect 400 "register with a token Cloudflare rejects is refused"
+[ "$(json '.errors["X-Captcha-Token"] | length')" -gt 0 ] || fail "Expected a CAPTCHA error, got: $RESPONSE"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = 'bot@example.com'" 0 "rejected CAPTCHA created no account"
 stop_app
 
 # ---------- summary ----------

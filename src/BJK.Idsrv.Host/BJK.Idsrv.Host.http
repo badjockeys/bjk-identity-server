@@ -5,8 +5,8 @@
 @host = https://localhost:5001
 @email = rider@example.com
 @password = Passw0rd!
-# Cloudflare Turnstile's dummy token. In Development the server uses Cloudflare's test secret,
-# which accepts only this token. The real apps get a fresh token from the Turnstile widget.
+# Cloudflare Turnstile's dummy token. Locally the server uses Cloudflare's "always passes" test secret,
+# so any token is accepted; leave the header out to see the 400. Real apps get a fresh token from the Turnstile widget.
 @captcha = XXXX.DUMMY.TOKEN.XXXX
 
 ### Health check

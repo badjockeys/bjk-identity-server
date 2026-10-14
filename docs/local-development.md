@@ -145,7 +145,15 @@ No email is sent yet. `Email:Provider` is `Log`, so in Development each email (i
 
 Registration (`POST /api/users`) and forgot password (`POST /api/users/password-reset`) need a Cloudflare Turnstile token in the `X-Captcha-Token` header. Without one, or with an invalid one, they return `400`. If Cloudflare can't be reached, they return `503`.
 
-Locally there's no widget, so your user secrets (from the template) hold Cloudflare's public test secret, which accepts only the dummy token `XXXX.DUMMY.TOKEN.XXXX`. The `.http` file already sends it. To try the failure path, send any other value.
+Locally there's no widget, so your user secrets (from the template) hold Cloudflare's public **"always passes"** test secret. With it, Cloudflare accepts any token, and the `.http` file sends the dummy token `XXXX.DUMMY.TOKEN.XXXX`. To see the rejections:
+
+- **No token:** leave the `X-Captcha-Token` header out, and you get `400`.
+- **Cloudflare saying no:** switch to Cloudflare's **"always fails"** test secret, restart the app, and every token is refused with `400`. Switch back afterwards:
+
+  ```bash
+  dotnet user-secrets set "Captcha:TurnstileSecretKey" "2x0000000000000000000000000000000AA" --project src/BJK.Idsrv.Host   # always fails
+  dotnet user-secrets set "Captcha:TurnstileSecretKey" "1x0000000000000000000000000000000AA" --project src/BJK.Idsrv.Host   # always passes
+  ```
 
 In the real apps, the Turnstile widget produces a token just before the request. Tokens are single-use and expire after 5 minutes. In Azure the real secret key goes in Key Vault as `Captcha:TurnstileSecretKey`.
 
