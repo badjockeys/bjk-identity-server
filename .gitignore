@@ -25,3 +25,9 @@ Thumbs.db
 # Local secrets
 appsettings.*.local.json
 *.env
+
+# Docker Compose secrets
+.env
+
+# Local copy of user-secrets.template.json with real values
+user-secrets.json

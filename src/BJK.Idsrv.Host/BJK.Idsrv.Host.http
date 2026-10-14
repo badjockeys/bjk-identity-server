@@ -1,0 +1,93 @@
+# Try the identity server and the User module end to end.
+# Run the app first (https profile), then send these requests top to bottom.
+# Works in Visual Studio, Rider, and VS Code with the REST Client extension.
+
+@host = https://localhost:5001
+@email = rider@example.com
+@password = Passw0rd!
+# Cloudflare Turnstile's dummy token. Locally the server uses Cloudflare's "always passes" test secret,
+# so any token is accepted; leave the header out to see the 400. Real apps get a fresh token from the Turnstile widget.
+@captcha = XXXX.DUMMY.TOKEN.XXXX
+
+### Health check
+GET {{host}}/health
+
+### OpenID Connect discovery document
+GET {{host}}/.well-known/openid-configuration
+
+### 1. Register a user (anonymous, needs a CAPTCHA token). Creates the sign-in account (auth.AspNetUsers) and the profile (users.Users).
+# @name register
+POST {{host}}/api/users
+Content-Type: application/json
+X-Captcha-Token: {{captcha}}
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "displayName": "Road Hog"
+}
+
+### 2. Sign in as that user (local test client, password grant)
+# @name userToken
+POST {{host}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=openid profile email bjk.users&username={{email}}&password={{password}}
+
+### 3. My profile
+GET {{host}}/api/users/me
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+
+### 4. Update my display name
+PUT {{host}}/api/users/{{register.response.body.$.id}}
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "displayName": "Lane Hogger"
+}
+
+### 5. Get my profile by id
+GET {{host}}/api/users/{{register.response.body.$.id}}
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+
+### 6. Admin token (local test client, client credentials)
+# @name adminToken
+POST {{host}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=bjk-local-admin&client_secret=local-admin-secret&scope=bjk.users bjk.users.manage
+
+### 7. List all users (admin)
+GET {{host}}/api/users?page=1&pageSize=20
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
+
+### 8. Forgot password (anonymous, needs a CAPTCHA token). Always 202.
+# Email isn't sent yet: in Development the whole email is written to the app's console. Copy the "Password reset code".
+POST {{host}}/api/users/password-reset
+Content-Type: application/json
+X-Captcha-Token: {{captcha}}
+
+{
+  "email": "{{email}}"
+}
+
+### 9. Set a new password. Paste the reset code from the console, then sign in again (step 2) with the new password.
+POST {{host}}/api/users/password-reset/confirm
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "token": "PASTE-TOKEN-FROM-CONSOLE",
+  "newPassword": "N3wPassw0rd!"
+}
+
+### 10. Delete the user (soft delete + sign-in disabled). Works with the user's own token or the admin token.
+DELETE {{host}}/api/users/{{register.response.body.$.id}}
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
+
+### 11. Signing in now fails with invalid_grant
+POST {{host}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=bjk.users&username={{email}}&password={{password}}
