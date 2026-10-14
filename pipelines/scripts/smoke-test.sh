@@ -20,6 +20,7 @@ PASSWORD='Passw0rd!'
 NEW_PASSWORD='N3wPassw0rd!'
 
 APP_PID=""
+PASSED=()
 : > "$APP_LOG"
 
 # ---------- helpers ----------
@@ -82,6 +83,7 @@ expect() {
   local expected=$1 label=$2
   [ "$STATUS" = "$expected" ] || fail "$label: expected HTTP $expected, got $STATUS. Response: $RESPONSE"
   echo "ok  $label ($STATUS)"
+  PASSED+=("$label ($STATUS)")
 }
 
 json() { jq -r "$1" <<< "$RESPONSE"; }
@@ -98,6 +100,7 @@ expect_sql() {
   actual=$(sql "$query" | head -1)
   [ "$actual" = "$expected" ] || fail "$label: expected '$expected', got '$actual'"
   echo "ok  $label ($actual)"
+  PASSED+=("$label ($actual)")
 }
 
 # ---------- first start: creates the database ----------
@@ -218,5 +221,11 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       | sed 's/^/| /; s/$/ |/'
   } >> "$GITHUB_STEP_SUMMARY"
 fi
+
+# One annotation with every check, so the results show on the pull request.
+checklist=$(printf '%s\n' "${PASSED[@]}")
+rows=$(sql "SELECT Email + ' | ' + DisplayName + ' | IsDeleted=' + CAST(IsDeleted AS varchar(1)) FROM users.Users ORDER BY CreatedAt")
+message=$(printf '%s checks passed:\n%s\n\nusers.Users:\n%s' "${#PASSED[@]}" "$checklist" "$rows")
+echo "::notice title=Smoke test passed::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' <<< "$message")"
 
 echo "All smoke tests passed."
