@@ -1,0 +1,16 @@
+<Project>
+  <!-- Central package management: versions live here, projects reference packages without a Version. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Bad Jockeys modules, from GitHub Packages (bjk-modules). -->
+    <PackageVersion Include="BJK.Modules.User" Version="0.2.0-ci.1" />
+
+    <PackageVersion Include="Duende.IdentityServer.AspNetIdentity" Version="8.0.9" />
+    <PackageVersion Include="Duende.IdentityServer.EntityFramework" Version="8.0.9" />
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+  </ItemGroup>
+</Project>

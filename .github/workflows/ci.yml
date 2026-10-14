@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  packages: read   # BJK.Modules.* from GitHub Packages
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Credentials for the "badjockeys" source in nuget.config.
+  NuGetPackageSourceCredentials_badjockeys: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }}
+  # Throwaway password for the CI-only SQL Server container below.
+  SQL_PASSWORD: Ci-Passw0rd-2026
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      sql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci-Passw0rd-2026
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Ci-Passw0rd-2026 -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: |
+          set -o pipefail
+          dotnet tool restore
+          if ! dotnet restore BJK.Idsrv.slnx 2>&1 | tee restore.log; then
+            grep -E "error" restore.log | sort -u | head -10 | sed 's/^/::error::/'
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build BJK.Idsrv.slnx --configuration Release --no-restore
+
+      # Fails if an entity or configuration changed without a matching migration.
+      - name: Check migrations are up to date
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+        run: |
+          for context in BjkIdentityDbContext PersistedGrantDbContext; do
+            dotnet ef migrations has-pending-model-changes \
+              --project src/BJK.Idsrv.Host --context "$context" \
+              --configuration Release --no-build
+          done
+
+      - name: End-to-end smoke test
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://localhost:5000
+          ConnectionStrings__IdentityDatabase: Server=localhost,1433;Database=BJK_Identity;User Id=sa;Password=Ci-Passw0rd-2026;TrustServerCertificate=True
+          SQL_CONTAINER: ${{ job.services.sql.id }}
+          Logging__Console__FormatterName: simple
+          Logging__Console__FormatterOptions__SingleLine: "true"
+          Logging__Console__FormatterOptions__ColorBehavior: Disabled
+        run: bash pipelines/scripts/smoke-test.sh

@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BJK.Idsrv.Host/BJK.Idsrv.Host.csproj" />
+  </Folder>
+</Solution>
