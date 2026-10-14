@@ -5,6 +5,9 @@
 @host = https://localhost:5001
 @email = rider@example.com
 @password = Passw0rd!
+# Cloudflare Turnstile's dummy token. In Development the server uses Cloudflare's test secret,
+# which accepts only this token. The real apps get a fresh token from the Turnstile widget.
+@captcha = XXXX.DUMMY.TOKEN.XXXX
 
 ### Health check
 GET {{host}}/health
@@ -12,10 +15,11 @@ GET {{host}}/health
 ### OpenID Connect discovery document
 GET {{host}}/.well-known/openid-configuration
 
-### 1. Register a user (anonymous). Creates the sign-in account (auth.AspNetUsers) and the profile (users.Users).
+### 1. Register a user (anonymous, needs a CAPTCHA token). Creates the sign-in account (auth.AspNetUsers) and the profile (users.Users).
 # @name register
 POST {{host}}/api/users
 Content-Type: application/json
+X-Captcha-Token: {{captcha}}
 
 {
   "email": "{{email}}",
@@ -58,15 +62,17 @@ grant_type=client_credentials&client_id=bjk-local-admin&client_secret=local-admi
 GET {{host}}/api/users?page=1&pageSize=20
 Authorization: Bearer {{adminToken.response.body.$.access_token}}
 
-### 8. Forgot password (anonymous). Always 202. The token is written to the app's console in Development.
+### 8. Forgot password (anonymous, needs a CAPTCHA token). Always 202.
+# Email isn't sent yet: in Development the whole email is written to the app's console. Copy the "Password reset code".
 POST {{host}}/api/users/password-reset
 Content-Type: application/json
+X-Captcha-Token: {{captcha}}
 
 {
   "email": "{{email}}"
 }
 
-### 9. Set a new password. Paste the token from the console, then sign in again (step 2) with the new password.
+### 9. Set a new password. Paste the reset code from the console, then sign in again (step 2) with the new password.
 POST {{host}}/api/users/password-reset/confirm
 Content-Type: application/json
 

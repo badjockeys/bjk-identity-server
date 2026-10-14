@@ -19,6 +19,10 @@ EMAIL2=rider.two@example.com
 PASSWORD='Passw0rd!'
 NEW_PASSWORD='N3wPassw0rd!'
 
+# Cloudflare's dummy Turnstile token, accepted by the test secret key CI configures (Captcha__TurnstileSecretKey).
+DUMMY_CAPTCHA='XXXX.DUMMY.TOKEN.XXXX'
+CAPTCHA=$DUMMY_CAPTCHA   # sent as X-Captcha-Token on every request; set to "" to leave it out
+
 APP_PID=""
 PASSED=()
 : > "$APP_LOG"
@@ -59,6 +63,7 @@ request() {
   local args=(-s -o response.json -w '%{http_code}' -X "$method" "$BASE_URL$path")
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
   if [ -n "$token" ]; then args+=(-H "Authorization: Bearer $token"); fi
+  if [ -n "$CAPTCHA" ]; then args+=(-H "X-Captcha-Token: $CAPTCHA"); fi
   STATUS=$(curl "${args[@]}")
   RESPONSE=$(cat response.json)
 }
@@ -111,6 +116,22 @@ expect_sql "SELECT COUNT(*) FROM sys.schemas WHERE name IN ('auth', 'idsrv', 'us
 
 request GET /.well-known/openid-configuration
 expect 200 "discovery document"
+
+# ---------- CAPTCHA ----------
+
+CAPTCHA=""
+request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p, displayName: "Bot"}')"
+expect 400 "register without a CAPTCHA token is rejected"
+request POST /api/users/password-reset "$(body --arg e "$EMAIL1" '{email: $e}')"
+expect 400 "forgot password without a CAPTCHA token is rejected"
+
+CAPTCHA="not-a-real-token"
+request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p, displayName: "Bot"}')"
+expect 400 "register with an invalid CAPTCHA token is rejected"
+[ "$(json '.errors["X-Captcha-Token"] | length')" -gt 0 ] || fail "Expected a CAPTCHA error, got: $RESPONSE"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 0 "rejected CAPTCHA created no account"
+
+CAPTCHA=$DUMMY_CAPTCHA
 
 # ---------- register ----------
 
@@ -167,12 +188,18 @@ expect 200 "admin lists users"
 
 request POST /api/users/password-reset "$(body '{email: "nobody@example.com"}')"
 expect 202 "reset for unknown email looks the same"
+grep -q "To: nobody@example.com" "$APP_LOG" && fail "An email was sent for an unregistered address."
+echo "ok  no email sent for unknown address"
 
 request POST /api/users/password-reset "$(body --arg e "$EMAIL1" '{email: $e}')"
 expect 202 "user 1 requests a password reset"
 sleep 1
-RESET_TOKEN=$(grep -o "password reset token for $EMAIL1: .*" "$APP_LOG" | tail -1 | sed "s/^.*$EMAIL1: //")
-[ -n "$RESET_TOKEN" ] || fail "No reset token found in the app log."
+# In Development the placeholder email sender writes the whole email to the log (one line in CI).
+# (Only one reset email is sent in this test, so the last code in the log is user 1's.)
+RESET_TOKEN=$(grep -o "Password reset code: [^ ]*" "$APP_LOG" | tail -1 | sed 's/^Password reset code: //')
+[ -n "$RESET_TOKEN" ] || fail "No password reset email found in the app log."
+grep -q "To: $EMAIL1" "$APP_LOG" || fail "The reset email wasn't addressed to user 1."
+grep -q "reset-password?email=rider.one%40example.com&token=" "$APP_LOG" || fail "The reset email has no link to the reset page."
 
 request POST /api/users/password-reset/confirm "$(body --arg e "$EMAIL1" '{email: $e, token: "not-a-real-token", newPassword: "N3wPassw0rd!"}')"
 expect 400 "bad reset token is rejected"

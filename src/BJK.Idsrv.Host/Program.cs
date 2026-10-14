@@ -1,6 +1,8 @@
 using BJK.Idsrv.Host;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
+using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Idsrv.Host.Services.Email;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
@@ -16,7 +18,9 @@ const string MigrationsHistoryTable = "__EFMigrationsHistory";
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString(ConnectionStringName)
-    ?? throw new InvalidOperationException($"Connection string '{ConnectionStringName}' is not configured.");
+    ?? throw new InvalidOperationException(
+        $"Connection string '{ConnectionStringName}' is not configured. Locally, set it with dotnet user-secrets "
+        + "(see docs/local-development.md); in Azure it comes from the App Service settings.");
 var hostAssembly = typeof(Program).Assembly.GetName().Name;
 
 // --- Sign-in accounts: ASP.NET Core Identity (schema "auth") ---
@@ -76,7 +80,9 @@ builder.Services.AddAuthentication()
 
 // --- Modules ---
 builder.Services.AddScoped<IIdentityService, AspNetIdentityService>();
-builder.Services.AddSingleton<IPasswordResetSender, LoggingPasswordResetSender>();
+builder.Services.AddEmail(builder.Configuration);
+builder.Services.AddCaptcha(builder.Configuration);
+builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName));
 
 builder.Services.AddHealthChecks();
