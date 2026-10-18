@@ -12,7 +12,7 @@ public sealed class ErrorModel(IIdentityServerInteractionService interaction, IH
 
     public async Task OnGetAsync(string? errorId)
     {
-        var error = await interaction.GetErrorContextAsync(errorId);
+        var error = await interaction.GetErrorContextAsync(errorId, HttpContext.RequestAborted);
         if (error is null)
         {
             return;

@@ -38,7 +38,7 @@ public sealed class LoginFlow(
     /// <summary>True if the sign-in is for the back-office app.</summary>
     public async Task<bool> IsForBackofficeAsync(string? returnUrl) =>
         returnUrl is not null
-        && (await interaction.GetAuthorizationContextAsync(returnUrl))?.Client.ClientId == Config.BackofficeClientId;
+        && (await interaction.GetAuthorizationContextAsync(returnUrl, CancellationToken.None))?.Client.ClientId == Config.BackofficeClientId;
 
     /// <summary>
     /// A deactivated account is locked out "forever"; an ordinary lockout after failed attempts lasts minutes.
@@ -75,7 +75,7 @@ public sealed class PageModelUrls(Microsoft.AspNetCore.Mvc.RazorPages.PageModel 
 {
     public IUrlHelper Url => page.Url;
 
-    public IActionResult Redirect(string url) => url == "~/" ? page.LocalRedirect(url) : page.Redirect(url);
+    public IActionResult Redirect(string url) => url == "~/" ? page.LocalRedirect(url) : new RedirectResult(url);
 
     public IActionResult RedirectToPage(string pageName, object? values = null) => page.RedirectToPage(pageName, values);
 }

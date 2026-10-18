@@ -3,7 +3,7 @@ using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.Captcha;
 using BJK.Modules.User.UseCases.Add;
-using FluentValidation;
+using ValidationException = FluentValidation.ValidationException;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;

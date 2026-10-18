@@ -99,6 +99,20 @@ expect() {
 
 json() { jq -r "$1" <<< "$RESPONSE"; }
 
+# jwt TOKEN JQ_EXPR  - reads a claim from an access token's payload
+jwt() {
+  local payload
+  payload=$(cut -d. -f2 <<< "$1" | tr '_-' '/+')
+  while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+  base64 -d <<< "$payload" 2>/dev/null | jq -r "$2"
+}
+
+# location PATH  - sets STATUS and LOCATION without following redirects
+location() {
+  STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt "$BASE_URL$1")
+  LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r')
+}
+
 body() { jq -cn "$@"; }
 
 sql() {
@@ -162,6 +176,31 @@ expect_sql "SELECT COUNT(*) FROM sys.schemas WHERE name IN ('auth', 'idsrv', 'us
 
 request GET /.well-known/openid-configuration
 expect 200 "discovery document"
+[ "$(json '.scopes_supported | index("bjk.posts") != null')" = "true" ] || fail "Expected bjk.posts in scopes_supported: $RESPONSE"
+echo "ok  core API scopes are published"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetRoles WHERE Name IN ('Moderator', 'Admin')" 2 "Moderator and Admin roles exist"
+
+request GET /Account/Login
+expect 200 "sign-in page"
+grep -q "Sign in" response.json || fail "The sign-in page doesn't look right."
+request GET /Account/Register
+expect 200 "sign-up page"
+grep -q "cf-turnstile" response.json || fail "The sign-up page has no CAPTCHA widget."
+location /Manage
+[ "$STATUS" = "302" ] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected /Manage to redirect to sign-in, got $STATUS $LOCATION"
+echo "ok  account pages need sign-in"
+PASSED+=("account pages need sign-in (302)")
+expect_sql "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM auth.DataProtectionKeys" yes "Data Protection keys stored in SQL"
+
+CHALLENGE=$(printf 'smoke-test-verifier-0123456789abcdefghijklmnopq' | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid%20profile%20email%20roles%20offline_access%20bjk.posts%20bjk.profiles%20bjk.media&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fauth%2Fcallback%2Fbjk&code_challenge=$CHALLENGE&code_challenge_method=S256&state=abc"
+[ "$STATUS" = "302" ] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected the web app's sign-in to land on the login page, got $STATUS $LOCATION"
+echo "ok  the web app's sign-in goes to the login page"
+PASSED+=("web client sign-in goes to the login page (302)")
+location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fevil.example.com%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256"
+grep -q "/Error" <<< "$LOCATION" || [ "$STATUS" = "400" ] || fail "An unregistered redirect address wasn't refused: $STATUS $LOCATION"
+echo "ok  unregistered redirect addresses are refused"
+PASSED+=("unregistered redirect addresses are refused")
 
 # ---------- CAPTCHA ----------
 
@@ -196,6 +235,25 @@ expect 201 "register user 2"
 USER2_ID=$(json .id)
 
 expect_sql "SELECT COUNT(*) FROM users.Accounts a JOIN auth.AspNetUsers u ON LOWER(CONVERT(nvarchar(36), a.Id)) = LOWER(u.Id)" 2 "each account id equals its sign-in account id"
+
+# ---------- confirm email ----------
+
+sleep 1
+CONFIRM_LINK=$(grep -o "ConfirmEmail?userId=$USER1_ID&code=[^ \"]*" "$APP_LOG" | tail -1)
+[ -n "$CONFIRM_LINK" ] || fail "No confirmation email for user 1 in the app log."
+grep -q "ConfirmEmail?userId=$USER2_ID&code=" "$APP_LOG" || fail "No confirmation email for user 2 in the app log."
+echo "ok  registration sends a confirmation email"
+PASSED+=("registration sends a confirmation email")
+CONFIRM_CODE=$(sed 's/.*&code=//' <<< "$CONFIRM_LINK" | python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))')
+
+request POST /api/users/confirm-email "$(body --arg u "$USER1_ID" '{userId: $u, token: "not-a-real-code"}')"
+expect 400 "a bad confirmation code is rejected"
+request POST /api/users/confirm-email "$(body --arg u "$USER1_ID" --arg t "$CONFIRM_CODE" '{userId: $u, token: $t}')"
+expect 204 "user 1 confirms their email"
+expect_sql "SELECT CAST(EmailConfirmed AS int) FROM auth.AspNetUsers WHERE Id = '$USER1_ID'" 1 "user 1's email is confirmed"
+location "/Account/ConfirmEmail?userId=$USER1_ID&code=x"
+[ "$STATUS" = "200" ] || fail "The confirmation page didn't load: $STATUS"
+echo "ok  confirmation page loads"
 expect_sql "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('users.Accounts') AND name IN ('Email', 'DisplayName')" 0 "no email or display name copied into users.Accounts"
 
 # ---------- sign in and self-service ----------
@@ -207,15 +265,19 @@ TOKEN1=$(json .access_token)
 request GET /api/users/me
 expect 401 "no token is unauthorised"
 
+[ "$(jwt "$TOKEN1" '.email_verified')" = "true" ] || fail "Expected email_verified=true in user 1's token: $(jwt "$TOKEN1" '.')"
+echo "ok  user 1's token says their email is verified"
+PASSED+=("token carries email_verified")
+
 request GET /api/users/me "" "$TOKEN1"
 expect 200 "user 1 reads own account"
 [ "$(json .email)" = "$EMAIL1" ] || fail "Wrong account returned: $RESPONSE"
 [ "$(json .status)" = "Active" ] || fail "Expected an active account: $RESPONSE"
 
-request GET "/api/users/$USER2_ID" "" "$TOKEN1"
+request GET "/api/admin/users/$USER2_ID" "" "$TOKEN1"
 expect 403 "user 1 can't read user 2"
 
-request GET /api/users "" "$TOKEN1"
+request GET /api/admin/users "" "$TOKEN1"
 expect 403 "user 1 can't list users"
 
 # ---------- download my data ----------
@@ -233,10 +295,37 @@ admin_token
 expect 200 "admin client gets a token"
 ADMIN=$(json .access_token)
 
-request GET "/api/users?page=1&pageSize=20" "" "$ADMIN"
+request GET "/api/admin/users?page=1&pageSize=20" "" "$ADMIN"
 expect 200 "admin lists users"
 [ "$(json .totalCount)" = "2" ] || fail "Expected 2 users, got: $RESPONSE"
 [ "$(json '[.items[].email] | sort | join(",")')" = "$EMAIL1,$EMAIL2" ] || fail "Expected both emails in the list: $RESPONSE"
+
+# ---------- staff roles ----------
+
+request PUT "/api/admin/users/$USER1_ID/roles" '{"roles":["Moderator"]}' "$TOKEN1"
+expect 403 "users can't give themselves a role"
+request PUT "/api/admin/users/$USER1_ID/roles" '{"roles":["Janitor"]}' "$ADMIN"
+expect 400 "only Moderator and Admin roles exist"
+request PUT "/api/admin/users/$USER1_ID/roles" '{"roles":["Moderator"]}' "$ADMIN"
+expect 200 "admin makes user 1 a moderator"
+[ "$(json '.roles | join(",")')" = "Moderator" ] || fail "Expected roles [Moderator]: $RESPONSE"
+
+STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/token" \
+  -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
+  --data-urlencode "scope=openid roles bjk.users bjk.users.manage" \
+  --data-urlencode "username=$EMAIL1" --data-urlencode "password=$PASSWORD")
+RESPONSE=$(cat response.json)
+expect 200 "moderator signs in without two-step"
+MOD_TOKEN=$(json .access_token)
+[ "$(jwt "$MOD_TOKEN" '.role')" = "Moderator" ] || fail "Expected role=Moderator in the token: $(jwt "$MOD_TOKEN" '.')"
+echo "ok  the token carries the Moderator role"
+PASSED+=("token carries the role")
+request GET /api/admin/users "" "$MOD_TOKEN"
+expect 403 "a moderator without two-step sign-in has no staff rights"
+
+request PUT "/api/admin/users/$USER1_ID/roles" '{"roles":[]}' "$ADMIN"
+expect 200 "admin removes the role"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUserRoles WHERE UserId = '$USER1_ID'" 0 "user 1 has no roles"
 
 # ---------- forgot password ----------
 
@@ -297,14 +386,14 @@ user_token "$EMAIL2" "$PASSWORD"
 expect 200 "user 2 can sign in again"
 expect_sql "SELECT CONCAT(Status, '/', ISNULL(CONVERT(varchar(30), DeletionDueAt), 'none')) FROM users.Accounts WHERE Id = '$USER2_ID'" "Active/none" "user 2 is active with no deletion due"
 
-request POST "/api/users/$USER2_ID/deactivate" "" "$TOKEN1"
+request POST "/api/admin/users/$USER2_ID/deactivate" "" "$TOKEN1"
 expect 403 "users can't deactivate other accounts"
-request POST "/api/users/$USER2_ID/deactivate" "" "$ADMIN"
+request POST "/api/admin/users/$USER2_ID/deactivate" "" "$ADMIN"
 expect 204 "admin deactivates user 2"
 user_token "$EMAIL2" "$PASSWORD"
 expect 400 "user 2 can't sign in after the admin deactivates them"
 
-request GET "/api/users?status=Deactivated" "" "$ADMIN"
+request GET "/api/admin/users?status=Deactivated" "" "$ADMIN"
 [ "$(json .totalCount)" = "1" ] || fail "Expected 1 deactivated user, got: $RESPONSE"
 echo "ok  admin lists deactivated accounts"
 

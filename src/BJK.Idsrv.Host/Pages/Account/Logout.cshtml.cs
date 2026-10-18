@@ -19,7 +19,7 @@ public sealed class LogoutModel(SignInManager<BjkIdentityUser> signIn, IIdentity
             return await SignOutAsync();
         }
 
-        var context = await interaction.GetLogoutContextAsync(LogoutId);
+        var context = await interaction.GetLogoutContextAsync(LogoutId, HttpContext.RequestAborted);
         return context?.ShowSignoutPrompt == false ? await SignOutAsync() : Page();
     }
 
@@ -27,7 +27,7 @@ public sealed class LogoutModel(SignInManager<BjkIdentityUser> signIn, IIdentity
 
     private async Task<IActionResult> SignOutAsync()
     {
-        var context = await interaction.GetLogoutContextAsync(LogoutId);
+        var context = await interaction.GetLogoutContextAsync(LogoutId, HttpContext.RequestAborted);
         if (User.Identity?.IsAuthenticated == true)
         {
             await signIn.SignOutAsync();

@@ -25,6 +25,9 @@ env:
   Email__PasswordResetUrl: http://localhost:3000/reset-password
   Captcha__TurnstileSecretKey: 1x0000000000000000000000000000000AA   # Cloudflare's public "always passes" test key
   Messaging__ConnectionUri: amqp://bjk:ci-rabbit-2026@localhost:5672
+  # The public website client, so the smoke test can start a real sign-in.
+  Clients__Web__RedirectUris__0: http://localhost:3000/api/auth/callback/bjk
+  Clients__Web__Secret: ci-web-secret
   RABBITMQ_MANAGEMENT_URL: http://localhost:15672
   RABBITMQ_USER: bjk
   RABBITMQ_PASSWORD: ci-rabbit-2026

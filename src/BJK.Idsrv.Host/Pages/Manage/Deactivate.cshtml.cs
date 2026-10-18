@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using BJK.Idsrv.Host.Data;
 using BJK.Modules.User.UseCases.Deactivate;
-using FluentValidation;
+using ValidationException = FluentValidation.ValidationException;
 using MediatR;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;

@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BJK.Modules.User.UseCases.Reset;
-using FluentValidation;
+using ValidationException = FluentValidation.ValidationException;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
