@@ -431,7 +431,7 @@ expect 400 "register with a token Cloudflare rejects is refused"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = 'bot@example.com'" 0 "rejected CAPTCHA created no account"
 stop_app
 
-# ---------- email and SMS settings are checked at startup ----------
+# ---------- email settings are checked at startup ----------
 
 # Choosing a real provider without its keys must stop the app, not fail at the first sign-up.
 check_refuses_to_start() {
@@ -445,7 +445,6 @@ check_refuses_to_start() {
   echo "ok  $label"; PASSED+=("$label")
 }
 check_refuses_to_start "won't start with SendGrid but no API key" "Email:SendGrid:ApiKey is required" Email__Provider=SendGrid
-check_refuses_to_start "won't start with Twilio but no credentials" "Sms:Twilio:AccountSid is required" Sms__Provider=Twilio
 
 # ---------- summary ----------
 

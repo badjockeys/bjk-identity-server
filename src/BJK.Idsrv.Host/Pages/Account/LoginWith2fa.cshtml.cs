@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
-using BJK.Modules.Communications;
-using BJK.Modules.Communications.Contracts;
-using BJK.Modules.Communications.Templates;
+using BJK.Modules.Email;
+using BJK.Modules.Email.Contracts;
+using BJK.Modules.Email.Templates;
+using BJK.Modules.Shared.Delivery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;

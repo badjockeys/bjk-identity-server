@@ -38,7 +38,6 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 | `Database:AllowDestructiveMigrations` | Default `false`. |
 | `Email:Provider` | `Log` (default): emails aren't sent; in Development they're written to the log. `SendGrid`: sent through SendGrid (needs `Email:SendGrid:ApiKey`, secret). |
 | `Email:LogoUrl`, `Email:ReplyToAddress` | Optional: PNG logo at the top of emails, and a reply-to address. |
-| `Sms:Provider` | `Log` (default) or `Twilio`. Nothing here sends SMS yet; the Communications module's settings are in bjk-modules' README. |
 | `Email:FromAddress`, `Email:PasswordResetUrl` | Sender address, and the web app page that reset links point to. |
 | `Messaging:ConnectionUri` | RabbitMQ. Required. User lifecycle events (deactivated, reactivated, deleted) are published to the `bjk.users` exchange for bjk-core. |
 | `Users:DeactivationGracePeriod`, `Users:RetentionCheckInterval` | Defaults: 90 days before a deactivated account is deleted; check hourly. |

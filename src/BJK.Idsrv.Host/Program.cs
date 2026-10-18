@@ -2,7 +2,7 @@ using BJK.Idsrv.Host;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.Captcha;
-using BJK.Modules.Communications;
+using BJK.Modules.Email;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
@@ -115,7 +115,7 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Manage");
 });
-builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new CommunicationsModule());
+builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule());
 
 builder.Services.AddHealthChecks();
 

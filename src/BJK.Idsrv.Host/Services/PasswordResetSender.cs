@@ -1,6 +1,6 @@
-using BJK.Modules.Communications;
-using BJK.Modules.Communications.Contracts;
-using BJK.Modules.Communications.Templates;
+using BJK.Modules.Email;
+using BJK.Modules.Email.Contracts;
+using BJK.Modules.Email.Templates;
 using Microsoft.Extensions.Options;
 
 namespace BJK.Idsrv.Host.Services;

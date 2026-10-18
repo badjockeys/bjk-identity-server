@@ -72,7 +72,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | Setting | Local value |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `.env` |
-| `Email:Provider`, `Sms:Provider` | `Log`: emails and texts go to the console instead of being sent (see Email below). Leave the SendGrid and Twilio placeholders unless you switch provider. |
+| `Email:Provider` | `Log`: emails go to the console instead of being sent (see Email below). Leave the SendGrid placeholder unless you switch provider. |
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
 | `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
@@ -203,7 +203,7 @@ docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U s
 
 ### Email
 
-Emails go through the Communications module from bjk-modules. Locally `Email:Provider` is `Log`, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
+Emails go through the Email module from bjk-modules. Locally `Email:Provider` is `Log`, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
 
 To send real emails from your machine, for example to see the HTML version in your inbox:
 

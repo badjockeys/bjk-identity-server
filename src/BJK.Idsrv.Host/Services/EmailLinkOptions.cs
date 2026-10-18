@@ -1,7 +1,7 @@
 namespace BJK.Idsrv.Host.Services;
 
 /// <summary>
-/// Addresses used in the links this server emails. Section <c>Email</c>, shared with the Communications module's
+/// Addresses used in the links this server emails. Section <c>Email</c>, shared with the Email module's
 /// sending settings (provider, sender, SendGrid key).
 /// </summary>
 public sealed class EmailLinkOptions
