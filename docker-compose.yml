@@ -1,7 +1,8 @@
-# Local SQL Server for development:  docker compose up -d
-# The sa password comes from .env (git-ignored); copy .env.example to .env first.
-# Data is kept in the "bjk-sql-data" volume, so it survives restarts.
-# To start again from an empty database:  docker compose down -v
+# Local SQL Server and RabbitMQ for development (shared with bjk-core):  docker compose up -d
+# Passwords come from .env (git-ignored); copy .env.example to .env first.
+# Data is kept in Docker volumes, so it survives restarts.
+# To start again from empty:  docker compose down -v
+# RabbitMQ dashboard: http://localhost:15672 (user bjk).
 services:
   sql:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -22,5 +23,24 @@ services:
       retries: 12
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: bjk-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: bjk
+      RABBITMQ_DEFAULT_PASS: ${BJK_RABBITMQ_PASSWORD:?Set BJK_RABBITMQ_PASSWORD in .env - see .env.example}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - bjk-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
 volumes:
   bjk-sql-data:
+  bjk-rabbitmq-data:

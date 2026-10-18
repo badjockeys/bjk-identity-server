@@ -7,7 +7,8 @@ namespace BJK.Idsrv.Host.Services.Captcha;
 
 /// <summary>
 /// Requires a valid Turnstile token in the <see cref="CaptchaOptions.HeaderName"/> header on the
-/// anonymous endpoints that bots would abuse: registration and "forgot password".
+/// anonymous endpoints that bots would abuse: registration, "forgot password" and reactivation
+/// (which checks a password, so it's a target for guessing).
 /// Lives in the host rather than the User module, so the module stays free of bot-protection concerns.
 /// </summary>
 internal sealed class CaptchaFilter(ICaptchaVerifier verifier) : IAsyncActionFilter
@@ -16,6 +17,7 @@ internal sealed class CaptchaFilter(ICaptchaVerifier verifier) : IAsyncActionFil
     [
         nameof(UserController.Add),
         nameof(UserController.RequestPasswordReset),
+        nameof(UserController.Reactivate),
     ];
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)

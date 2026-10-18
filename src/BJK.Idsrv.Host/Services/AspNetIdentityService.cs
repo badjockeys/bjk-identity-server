@@ -1,12 +1,15 @@
 using BJK.Idsrv.Host.Data;
 using BJK.Modules.User.Infrastructure.Services;
+using Duende.IdentityServer.Stores;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace BJK.Idsrv.Host.Services;
 
 /// <summary>The User module's view of sign-in accounts, backed by ASP.NET Core Identity.</summary>
 internal sealed class AspNetIdentityService(
     UserManager<BjkIdentityUser> userManager,
+    IPersistedGrantStore grants,
     IPasswordResetSender resetSender,
     TimeProvider clock,
     ILogger<AspNetIdentityService> logger)
@@ -22,13 +25,40 @@ internal sealed class AspNetIdentityService(
             : AccountResult.Failed(MapErrors(result, passwordField: "Password"));
     }
 
-    public async Task DeleteAccountAsync(string identityId, CancellationToken cancellationToken)
+    public async Task<SignInAccount?> GetAccountAsync(string identityId, CancellationToken cancellationToken)
     {
         var user = await userManager.FindByIdAsync(identityId);
-        if (user is not null)
+        return user is null ? null : ToSignInAccount(user);
+    }
+
+    public async Task<IReadOnlyDictionary<string, SignInAccount>> GetAccountsAsync(
+        IReadOnlyCollection<string> identityIds,
+        CancellationToken cancellationToken)
+    {
+        if (identityIds.Count == 0)
         {
-            await userManager.DeleteAsync(user);
+            return new Dictionary<string, SignInAccount>();
         }
+
+        var users = await userManager.Users
+            .Where(u => identityIds.Contains(u.Id))
+            .ToListAsync(cancellationToken);
+
+        return users.ToDictionary(u => u.Id, ToSignInAccount, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<bool> CheckPasswordAsync(string identityId, string password, CancellationToken cancellationToken)
+    {
+        var user = await userManager.FindByIdAsync(identityId);
+        return user is not null && await userManager.CheckPasswordAsync(user, password);
+    }
+
+    public async Task<string?> FindByCredentialsAsync(string email, string password, CancellationToken cancellationToken)
+    {
+        var user = await userManager.FindByEmailAsync(email);
+
+        // CheckPasswordAsync ignores lockout, which is how deactivated accounts are kept from signing in.
+        return user is not null && await userManager.CheckPasswordAsync(user, password) ? user.Id : null;
     }
 
     public async Task DisableAccountAsync(string identityId, CancellationToken cancellationToken)
@@ -42,8 +72,32 @@ internal sealed class AspNetIdentityService(
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
 
-        // Invalidates existing sign-in sessions.
+        // Ends sign-in sessions and revokes refresh tokens, so the user is signed out everywhere.
         await userManager.UpdateSecurityStampAsync(user);
+        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = user.Id });
+    }
+
+    public async Task EnableAccountAsync(string identityId, CancellationToken cancellationToken)
+    {
+        var user = await userManager.FindByIdAsync(identityId);
+        if (user is null)
+        {
+            return;
+        }
+
+        await userManager.SetLockoutEndDateAsync(user, null);
+        await userManager.ResetAccessFailedCountAsync(user);
+    }
+
+    public async Task DeleteAccountAsync(string identityId, CancellationToken cancellationToken)
+    {
+        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = identityId });
+
+        var user = await userManager.FindByIdAsync(identityId);
+        if (user is not null)
+        {
+            await userManager.DeleteAsync(user);
+        }
     }
 
     public async Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken)
@@ -52,7 +106,7 @@ internal sealed class AspNetIdentityService(
         if (user is null || IsDisabled(user))
         {
             // Deliberately silent to the caller, so it can't be used to check which emails are registered.
-            logger.LogInformation("Password reset requested for an unknown or disabled account.");
+            logger.LogInformation("Password reset requested for an unknown or deactivated account.");
             return;
         }
 
@@ -84,7 +138,10 @@ internal sealed class AspNetIdentityService(
         return AccountResult.Failed(MapErrors(result, passwordField: "NewPassword"));
     }
 
-    // Disabled accounts are locked out "forever"; ordinary lockouts after failed sign-ins last minutes.
+    private static SignInAccount ToSignInAccount(BjkIdentityUser user) =>
+        new(user.Id, user.Email ?? string.Empty, user.EmailConfirmed);
+
+    // Deactivated accounts are locked out "forever"; ordinary lockouts after failed sign-ins last minutes.
     private bool IsDisabled(BjkIdentityUser user) =>
         user.LockoutEnd is { } end && end > clock.GetUtcNow().AddYears(100);
 
