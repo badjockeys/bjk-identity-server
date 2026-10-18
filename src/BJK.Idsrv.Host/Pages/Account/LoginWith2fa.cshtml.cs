@@ -3,7 +3,7 @@ using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Modules.Communications;
 using BJK.Modules.Communications.Contracts;
-using BJK.Modules.Communications.Email;
+using BJK.Modules.Communications.Templates;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -72,11 +72,7 @@ public sealed class LoginWith2faModel(
         }
 
         var code = await users.GenerateTwoFactorTokenAsync(user, TokenOptions.DefaultEmailProvider);
-        var message = BrandedEmail.Create("Your sign-in code")
-            .Paragraph("Enter this code to finish signing in to Bad Jockeys. It expires in a few minutes.")
-            .Code("Sign-in code", code)
-            .Note("If you didn't try to sign in, change your password.")
-            .ToMessage(user.Email, "Your Bad Jockeys sign-in code", emailOptions.Value.LogoUrl);
+        var message = EmailTemplates.SignInCode(code).To(user.Email, emailOptions.Value.LogoUrl);
         try
         {
             await email.SendAsync(message, HttpContext.RequestAborted);
