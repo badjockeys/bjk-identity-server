@@ -37,7 +37,7 @@ public sealed class AgeAwareProfileService(
 /// </summary>
 public sealed class AgeVerifiedClaimsService(DefaultClaimsService inner, IAgeVerificationLookup ageVerification) : IClaimsService
 {
-    public async Task<IEnumerable<Claim>> GetIdentityTokenClaimsAsync(
+    public async Task<IReadOnlyCollection<Claim>> GetIdentityTokenClaimsAsync(
         ClaimsPrincipal subject,
         ResourceValidationResult resources,
         bool includeAllIdentityClaims,
@@ -53,7 +53,7 @@ public sealed class AgeVerifiedClaimsService(DefaultClaimsService inner, IAgeVer
         return claims;
     }
 
-    public Task<IEnumerable<Claim>> GetAccessTokenClaimsAsync(
+    public Task<IReadOnlyCollection<Claim>> GetAccessTokenClaimsAsync(
         ClaimsPrincipal subject,
         ResourceValidationResult resources,
         ValidatedRequest request,
