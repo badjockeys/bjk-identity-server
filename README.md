@@ -21,6 +21,8 @@ src/
 | Part | Library | SQL schema |
 |---|---|---|
 | Sign-in accounts and passwords | ASP.NET Core Identity | `auth` |
+| Sign-in pages: sign in/up, two-step (authenticator app, email codes, recovery codes), Google/Apple/Facebook, forgot password, reactivate, account settings | Razor Pages in this host | |
+| Data Protection keys (cookies, antiforgery, two-step tokens), shared by all instances | ASP.NET Core Data Protection | `auth` |
 | Tokens, signing keys, sessions | Duende IdentityServer 8 | `idsrv` |
 | Account status, deactivation and retention, management API (`/api/users`), outbox of user events | BJK.Modules.User | `users` |
 
@@ -38,6 +40,11 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 | `Email:FromAddress`, `Email:PasswordResetUrl` | Sender address, and the web app page that reset links point to. |
 | `Messaging:ConnectionUri` | RabbitMQ. Required. User lifecycle events (deactivated, reactivated, deleted) are published to the `bjk.users` exchange for bjk-core. |
 | `Users:DeactivationGracePeriod`, `Users:RetentionCheckInterval` | Defaults: 90 days before a deactivated account is deleted; check hourly. |
+| `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Each app's redirect addresses (and secret for web and back-office). A client only exists when its `RedirectUris` are set. |
+| `Admin:BootstrapEmails` | Accounts made Admin at startup (must exist with a confirmed email). For appointing the first admin. |
+| `Authentication:Google`, `:Apple`, `:Facebook` | Social sign-in keys. Each provider is switched on only when its keys are set. |
+| `Email:PublicOrigin` | This server's public address, for links in emails. |
+| `Captcha:TurnstileSiteKey` | Turnstile site key for the widget on the sign-up, forgot password and reactivate pages. |
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. |
 
 Locally these come from .NET user secrets: load them from `user-secrets.template.json`. In Azure they come from Key Vault and App Service settings. The appsettings files hold no environment settings, and no secrets are stored in the repo.

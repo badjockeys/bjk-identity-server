@@ -72,14 +72,18 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | Setting | Local value |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `.env` |
-| `Email:FromAddress`, `Email:PasswordResetUrl` | Placeholder sender, and the web app's future reset page |
-| `Captcha:TurnstileSecretKey` | Cloudflare's public test key (see CAPTCHA below) |
+| `Email:FromAddress` | Placeholder sender |
+| `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
+| `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
 | `Messaging:ConnectionUri` | The Docker RabbitMQ, with your password from `.env` |
+| `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
+| `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
+| `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
 
 ```bash
-dotnet user-secrets set "Email:PasswordResetUrl" "http://localhost:3000/reset-password" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Admin:BootstrapEmails:0" "you@example.com" --project src/BJK.Idsrv.Host
 ```
 
 Optional, when you have them:
@@ -110,6 +114,50 @@ UserDbContext: applying migrations ...
 On later starts each line says `database schema is up to date`.
 
 ## 6. Try it
+
+### The sign-in pages
+
+Open https://localhost:5001: it takes you to sign in. From there you can:
+
+- **Create an account.** The CAPTCHA widget passes automatically with the test keys. The confirmation email is written to the console; open its link to confirm.
+- **Sign in.**
+- **Reset a forgotten password.** The email goes to the console.
+- **Reactivate a deactivated account.**
+- **Manage your account (`/Manage`):** turn on two-step verification with an authenticator app (scan the QR code) or emailed codes, save recovery codes, change your password, link Google, Apple or Facebook, or deactivate.
+
+These are the pages the web app, phone app and back-office send people to; none of them has its own sign-in form.
+
+| Page | |
+|---|---|
+| `/Account/Login`, `/Account/Register` | Sign in, sign up (plus social buttons once configured) |
+| `/Account/LoginWith2fa`, `/Account/LoginWithRecoveryCode` | Second step: authenticator code, emailed code, or recovery code |
+| `/Account/ForgotPassword`, `/Account/ResetPassword` | Forgot password |
+| `/Account/ConfirmEmail` | Where the confirmation email's link lands |
+| `/Account/Reactivate` | Bring back a deactivated account |
+| `/Manage` | Account overview, two-step, password, social sign-in, deactivate |
+
+### Staff roles
+
+Moderators and Admins must use two-step verification. A staff member without it is sent to set up an authenticator app straight after signing in, then signs in again. Their staff rights (the `/api/admin` endpoints) only count when the session used two-step.
+
+To make yourself the first Admin:
+1. Register and confirm your email.
+2. Put your email in `Admin:BootstrapEmails` and restart.
+3. From then on, admins give or take roles with `PUT /api/admin/users/{id}/roles` (`["Moderator"]`, `["Admin"]` or `[]`), later from the back-office.
+
+### Social sign-in
+
+Each provider switches on when its keys are in your user secrets. Every provider has to know this server's callback address:
+
+| Provider | Where to get keys | Callback address to register |
+|---|---|---|
+| Google | Google Cloud console → APIs & Services → Credentials → OAuth client (Web application) | `https://localhost:5001/signin-google` |
+| Facebook | developers.facebook.com → your app → Facebook Login | `https://localhost:5001/signin-facebook` |
+| Apple | developer.apple.com → Certificates, IDs & Profiles: a Services ID (the client id), a Sign in with Apple key (.p8, key id) and your team id. Apple needs a real HTTPS domain, so try it on DEV rather than localhost. | `https://<domain>/signin-apple` |
+
+A first social sign-in creates an account with the provider's email (already confirmed). If an account with that email already exists, the two are never joined automatically; the person signs in with their password and links the provider on `/Manage`.
+
+### The API walkthrough
 
 Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to bottom. It works in Rider, Visual Studio, and VS Code with the REST Client extension.
 
@@ -178,10 +226,18 @@ These two clients exist **only when `ASPNETCORE_ENVIRONMENT=Development`**:
 
 | Client | Grant | Scopes | Use |
 |---|---|---|---|
-| `bjk-local-user` / `local-user-secret` | password | `openid profile email bjk.users` | Sign in as a user without a login page |
-| `bjk-local-admin` / `local-admin-secret` | client credentials | `bjk.users bjk.users.manage` | Admin calls such as listing users |
+| `bjk-local-user` / `local-user-secret` | password | user scopes, plus the `.manage` scopes | Sign in as a user without the login page. Staff rights never work with it, because there's no two-step. |
+| `bjk-local-admin` / `local-admin-secret` | client credentials | user and `.manage` scopes | Admin calls such as listing accounts or setting roles |
 
-The real web and mobile apps will sign in through a login page (authorization code + PKCE). That comes with the web app.
+The real apps use these clients (authorization code + PKCE, refresh tokens), configured under `Clients` in your user secrets:
+
+| Client | Who | Notes |
+|---|---|---|
+| `bjk-web` | The website (Next.js), signing in on its server | Has a secret; 15-minute access tokens, 30-day sliding refresh tokens |
+| `bjk-mobile` | The phone apps, through the system browser | No secret (public client); `badjockeys://auth/callback` |
+| `bjk-backoffice` | Moderators and admins | Has a secret; adds the `.manage` scopes; non-staff are turned away at sign-in; 10-minute access tokens, 8-hour sessions |
+
+Access tokens for the core API have the audience `bjk-api` and carry `role` and `email_verified`.
 
 ## Database changes
 
