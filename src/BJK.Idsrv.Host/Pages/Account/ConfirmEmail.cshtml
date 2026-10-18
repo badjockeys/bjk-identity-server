@@ -1,0 +1,17 @@
+@page
+@model ConfirmEmailModel
+@{
+    ViewData["Title"] = "Confirm your email";
+}
+@if (Model.Confirmed)
+{
+    <h1>Email confirmed</h1>
+    <p class="lead">Thanks. You can now post and comment. If an app is open, sign out and back in (or wait a few minutes) for it to notice.</p>
+    <a class="button" href="/Manage">Your account</a>
+}
+else
+{
+    <h1>That link didn't work</h1>
+    <p class="lead">It may have expired or already been used. Sign in and ask for a new one from your account page.</p>
+    <a class="button" href="/Manage">Your account</a>
+}

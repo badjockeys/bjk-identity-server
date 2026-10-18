@@ -1,0 +1,15 @@
+@page
+@model DeactivateModel
+@{
+    ViewData["Title"] = "Deactivate your account";
+}
+<h1>Deactivate your account</h1>
+<p class="lead">Your profile, posts and comments will be hidden straight away and you'll be signed out everywhere. You have 90 days to change your mind: sign in again (or use "Reactivate" on the sign-in page) and everything comes back. After 90 days your account and all your data are deleted for good.</p>
+<p>Want a copy of your data first? Use "Download my data" in the Bad Jockeys app or website before you deactivate.</p>
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <label asp-for="Password">Confirm with your password</label>
+    <input asp-for="Password" type="password" autocomplete="current-password" />
+    <button type="submit" class="danger">Deactivate my account</button>
+</form>
+<div class="links"><a asp-page="./Index">Cancel</a></div>

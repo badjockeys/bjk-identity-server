@@ -1,0 +1,43 @@
+@page
+@model LoginWith2faModel
+@{
+    ViewData["Title"] = "Two-step verification";
+}
+<h1>Two-step verification</h1>
+@if (Model.Method == "email")
+{
+    <p class="lead">We've emailed you a 6-digit code. Enter it below.</p>
+}
+else
+{
+    <p class="lead">Enter the 6-digit code from your authenticator app.</p>
+}
+
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="ReturnUrl" />
+    <input type="hidden" asp-for="RememberMe" />
+    <input type="hidden" asp-for="Method" />
+
+    <label asp-for="Code">Code</label>
+    <input asp-for="Code" type="text" inputmode="numeric" autocomplete="one-time-code" autofocus />
+
+    @if (Model.CanRememberDevice)
+    {
+        <label class="check"><input asp-for="RememberDevice" type="checkbox" /> Don't ask again on this device</label>
+    }
+
+    <button type="submit">Verify</button>
+</form>
+
+<div class="links">
+    @if (Model.Method != "email" && Model.CanUseEmail)
+    {
+        <form method="post" asp-page-handler="SendEmail">
+            <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
+            <input type="hidden" name="RememberMe" value="@Model.RememberMe" />
+            <button type="submit" class="secondary">Email me a code instead</button>
+        </form>
+    }
+    <a asp-page="./LoginWithRecoveryCode" asp-route-returnUrl="@Model.ReturnUrl">Use a recovery code</a>
+</div>

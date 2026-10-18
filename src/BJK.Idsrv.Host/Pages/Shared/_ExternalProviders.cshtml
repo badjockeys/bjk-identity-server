@@ -1,0 +1,11 @@
+@model BJK.Idsrv.Host.Pages.ExternalProvidersModel
+@if (Model.Providers.Count > 0)
+{
+    <div class="divider">or</div>
+    <form method="post" asp-page="/Account/ExternalLogin" asp-route-returnUrl="@Model.ReturnUrl" class="providers">
+        @foreach (var provider in Model.Providers)
+        {
+            <button type="submit" class="secondary" name="provider" value="@provider.Name">Continue with @(provider.DisplayName ?? provider.Name)</button>
+        }
+    </form>
+}

@@ -1,0 +1,21 @@
+@page
+@model ReactivateModel
+@{
+    ViewData["Title"] = "Reactivate your account";
+}
+<h1>Reactivate your account</h1>
+<p class="lead">Your account is deactivated. Deactivated accounts are deleted for good 90 days after they were deactivated. Reactivate it now and everything comes back as it was.</p>
+
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="ReturnUrl" />
+    <label asp-for="Input.Email">Email</label>
+    <input asp-for="Input.Email" type="email" autocomplete="username" />
+    <label asp-for="Input.Password">Password</label>
+    <input asp-for="Input.Password" type="password" autocomplete="current-password" autofocus />
+    <partial name="_Turnstile" />
+    <button type="submit">Reactivate and sign in</button>
+</form>
+<div class="links">
+    <span>Signed up with Google, Apple or Facebook? Use the same button on the <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">sign-in page</a> to reactivate.</span>
+</div>

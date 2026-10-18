@@ -1,0 +1,15 @@
+@page
+@model LoginWithRecoveryCodeModel
+@{
+    ViewData["Title"] = "Use a recovery code";
+}
+<h1>Use a recovery code</h1>
+<p class="lead">Lost your phone? Enter one of the recovery codes you saved when you set up two-step verification. Each code works once.</p>
+
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="ReturnUrl" />
+    <label asp-for="RecoveryCode">Recovery code</label>
+    <input asp-for="RecoveryCode" type="text" autocomplete="off" autofocus />
+    <button type="submit">Sign in</button>
+</form>

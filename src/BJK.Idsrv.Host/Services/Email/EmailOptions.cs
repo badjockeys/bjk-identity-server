@@ -18,10 +18,16 @@ public sealed class EmailOptions
     public string FromName { get; set; } = "Bad Jockeys";
 
     /// <summary>
-    /// Page in the web app where users choose a new password, e.g. https://app.example.com/reset-password.
+    /// Page where users choose a new password: this server's /Account/ResetPassword, e.g. https://auth.badjockeys.com/Account/ResetPassword.
     /// The email links to it with <c>?email=…&amp;token=…</c>. If not set, the email only contains the reset code.
     /// </summary>
     public Uri? PasswordResetUrl { get; set; }
+
+    /// <summary>
+    /// This identity server's public address, e.g. https://auth.badjockeys.com, for links in emails (confirm email).
+    /// If not set, the address of the current request is used.
+    /// </summary>
+    public Uri? PublicOrigin { get; set; }
 
     public SendGridOptions SendGrid { get; set; } = new();
 }

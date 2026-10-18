@@ -1,0 +1,30 @@
+@page
+@model RegisterModel
+@{
+    ViewData["Title"] = "Create an account";
+}
+<h1>Create an account</h1>
+<p class="lead">You'll choose your @@handle and display name next.</p>
+
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="ReturnUrl" />
+
+    <label asp-for="Input.Email">Email</label>
+    <input asp-for="Input.Email" type="email" autocomplete="email" autofocus />
+
+    <label asp-for="Input.Password">Password</label>
+    <input asp-for="Input.Password" type="password" autocomplete="new-password" />
+
+    <label asp-for="Input.ConfirmPassword">Confirm password</label>
+    <input asp-for="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+
+    <partial name="_Turnstile" />
+    <button type="submit">Create account</button>
+</form>
+
+<partial name="_ExternalProviders" model="new ExternalProvidersModel(Model.Providers, Model.ReturnUrl)" />
+
+<div class="links">
+    <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Already have an account? Sign in</a>
+</div>

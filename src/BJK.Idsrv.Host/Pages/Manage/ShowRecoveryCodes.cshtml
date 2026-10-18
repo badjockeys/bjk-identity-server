@@ -1,0 +1,25 @@
+@page
+@model ShowRecoveryCodesModel
+@{
+    ViewData["Title"] = "Recovery codes";
+}
+<h1>Two-step verification is on</h1>
+@if (Model.Codes.Count > 0)
+{
+    <p class="lead">Save these recovery codes somewhere safe, such as a password manager. If you lose your phone, each one gets you in once. You won't see them again.</p>
+    <div class="codes">
+        @foreach (var code in Model.Codes)
+        {
+            <span>@code</span>
+        }
+    </div>
+}
+@if (Model.SignInAgain is not null)
+{
+    <p>Now sign in again with your new second step.</p>
+    <a class="button" asp-page="/Account/Login" asp-route-returnUrl="@Model.SignInAgain">Sign in</a>
+}
+else
+{
+    <a class="button" asp-page="./TwoFactor">Done</a>
+}

@@ -9,6 +9,7 @@ using BJK.Modules.Shared.Security;
 using BJK.Modules.User;
 using BJK.Modules.User.Infrastructure.Services;
 using Duende.IdentityServer.EntityFramework.DbContexts;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,9 +41,27 @@ builder.Services
         options.Lockout.AllowedForNewUsers = true;
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+        // People can sign in before confirming their email; posting and commenting need it (checked in bjk-core).
+        options.SignIn.RequireConfirmedEmail = false;
     })
     .AddEntityFrameworkStores<BjkIdentityDbContext>()
     .AddDefaultTokenProviders();
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Account/Login";
+    options.LogoutPath = "/Account/Logout";
+    options.AccessDeniedPath = "/Account/AccessDenied";
+});
+
+// Keys for cookies, antiforgery and two-factor tokens, shared by every instance through the database.
+builder.Services.AddDataProtection()
+    .SetApplicationName("bjk-identity-server")
+    .PersistKeysToDbContext<BjkIdentityDbContext>();
+
+// Social sign-in: each provider is switched on only when its keys are configured.
+builder.Services.AddAuthentication().AddSocialSignIn(builder.Configuration);
 
 // --- Token service: Duende IdentityServer ---
 builder.Services
@@ -53,10 +72,14 @@ builder.Services
         options.EmitStaticAudienceClaim = true;
         options.Events.RaiseErrorEvents = true;
         options.Events.RaiseFailureEvents = true;
+        options.UserInteraction.LoginUrl = "/Account/Login";
+        options.UserInteraction.LogoutUrl = "/Account/Logout";
+        options.UserInteraction.ErrorUrl = "/Error";
     })
     .AddInMemoryIdentityResources(Config.IdentityResources)
     .AddInMemoryApiScopes(Config.ApiScopes)
-    .AddInMemoryClients(Config.Clients(builder.Environment))
+    .AddInMemoryApiResources(Config.ApiResources)
+    .AddInMemoryClients(Config.Clients(builder.Configuration, builder.Environment).ToList())
     // Signing keys, refresh tokens and sessions live in SQL (schema "idsrv"),
     // so every App Service instance shares them and they survive restarts and redeploys.
     .AddOperationalStore(options =>
@@ -83,6 +106,15 @@ builder.Services.AddScoped<IIdentityService, AspNetIdentityService>();
 builder.Services.AddEmail(builder.Configuration);
 builder.Services.AddCaptcha(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
+builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
+builder.Services.AddScoped<LoginFlow>();
+builder.Services.Configure<AdminBootstrapOptions>(builder.Configuration.GetSection(AdminBootstrapOptions.SectionName));
+
+// Sign-in, registration and account pages (/Account, /Manage).
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.AuthorizeFolder("/Manage");
+});
 builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName));
 
 builder.Services.AddHealthChecks();
@@ -93,6 +125,7 @@ var app = builder.Build();
 await app.Services.MigrateDatabaseAsync<BjkIdentityDbContext>();
 await app.Services.MigrateDatabaseAsync<PersistedGrantDbContext>();
 await app.Services.InitialiseBjkModulesAsync();
+await IdentitySeeder.SeedAsync(app.Services);
 
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment())
@@ -105,7 +138,8 @@ app.UseIdentityServer();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapRazorPages();
 app.MapHealthChecks("/health");
-app.MapGet("/", () => "Bad Jockeys identity server");
+app.MapGet("/", () => Results.Redirect("/Manage"));
 
 app.Run();
