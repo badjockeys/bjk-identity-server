@@ -19,7 +19,7 @@ env:
   NuGetPackageSourceCredentials_badjockeys: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }}
   # Throwaway password for the CI-only SQL Server container below.
   SQL_PASSWORD: Ci-Passw0rd-2026
-  ConnectionStrings__IdentityDatabase: Server=localhost,1433;Database=BJK_Identity;User Id=sa;Password=Ci-Passw0rd-2026;TrustServerCertificate=True
+  ConnectionStrings__IdentityDatabase: Server=localhost,1433;Database=idsrv;User Id=sa;Password=Ci-Passw0rd-2026;TrustServerCertificate=True
   # Same settings developers keep in user secrets (see user-secrets.template.json).
   Email__FromAddress: no-reply@badjockeys.local
   Email__PasswordResetUrl: http://localhost:3000/reset-password

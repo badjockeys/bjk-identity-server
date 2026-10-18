@@ -99,7 +99,7 @@ body() { jq -cn "$@"; }
 
 sql() {
   docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASSWORD" -C \
-    -d BJK_Identity -h -1 -W -Q "SET NOCOUNT ON; $1" | tr -d '\r' | sed '/^$/d'
+    -d idsrv -h -1 -W -Q "SET NOCOUNT ON; $1" | tr -d '\r' | sed '/^$/d'
 }
 
 expect_sql() {
@@ -221,6 +221,7 @@ request GET "/api/users?page=1&pageSize=20" "" "$ADMIN"
 
 expect_sql "SELECT IsDeleted FROM users.Users WHERE Id = '$USER2_ID'" 1 "user 2 is soft-deleted, row kept"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 2 "both sign-in accounts kept"
+expect_sql "SELECT COUNT(*) FROM users.Users u JOIN auth.AspNetUsers a ON LOWER(CONVERT(nvarchar(36), u.Id)) = LOWER(a.Id) AND u.IdentityId = LOWER(a.Id)" 2 "each profile id equals its sign-in account id"
 expect_sql "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM idsrv.Keys" yes "signing key stored in SQL"
 
 # ---------- restart: migrations must leave data alone ----------

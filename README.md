@@ -24,7 +24,7 @@ src/
 | Tokens, signing keys, sessions | Duende IdentityServer 8 | `idsrv` |
 | User profiles and management API (`/api/users`) | BJK.Modules.User | `users` |
 
-All three share one Azure SQL database (`BJK_Identity`). Each part has its own schema and migrations history. Migrations are applied when the app starts, and any migration that would delete data is refused (see `docs/local-development.md`).
+All three share one Azure SQL database (`idsrv`). Each part has its own schema and migrations history. Migrations are applied when the app starts, and any migration that would delete data is refused (see `docs/local-development.md`).
 
 ## Configuration
 
