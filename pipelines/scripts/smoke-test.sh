@@ -188,6 +188,9 @@ request GET /.well-known/openid-configuration
 expect 200 "discovery document"
 [ "$(json '.scopes_supported | index("bjk.posts") != null')" = "true" ] || fail "Expected bjk.posts in scopes_supported: $RESPONSE"
 echo "ok  core API scopes are published"
+[ "$(json '.scopes_supported | index("bjk.profiles.manage") != null')" = "true" ] || fail "Expected bjk.profiles.manage in scopes_supported: $RESPONSE"
+echo "ok  bjk.profiles.manage is published"
+PASSED+=("bjk.profiles.manage scope published")
 expect_sql "SELECT COUNT(*) FROM auth.AspNetRoles WHERE Name IN ('Moderator', 'Admin')" 2 "Moderator and Admin roles exist"
 
 request GET /Account/Login
@@ -278,6 +281,19 @@ expect 401 "no token is unauthorised"
 [ "$(jwt "$TOKEN1" '.email_verified')" = "true" ] || fail "Expected email_verified=true in user 1's token: $(jwt "$TOKEN1" '.')"
 echo "ok  user 1's token says their email is verified"
 PASSED+=("token carries email_verified")
+
+# Tokens for the core API (audience bjk-api) carry the email, for report and appeal acknowledgements.
+STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/token" \
+  -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
+  --data-urlencode "scope=openid bjk.posts" \
+  --data-urlencode "username=$EMAIL1" --data-urlencode "password=$PASSWORD")
+RESPONSE=$(cat response.json)
+expect 200 "user 1 gets a core API token"
+CORE_TOKEN=$(json .access_token)
+[ "$(jwt "$CORE_TOKEN" '.email')" = "$EMAIL1" ] || fail "Expected the email in the core API token: $(jwt "$CORE_TOKEN" '.')"
+[ "$(jwt "$CORE_TOKEN" '.aud | if type == "array" then index("bjk-api") != null else . == "bjk-api" end')" = "true" ] || fail "Expected audience bjk-api: $(jwt "$CORE_TOKEN" '.')"
+echo "ok  core API tokens carry the email"
+PASSED+=("bjk-api token carries email")
 
 request GET /api/users/me "" "$TOKEN1"
 expect 200 "user 1 reads own account"

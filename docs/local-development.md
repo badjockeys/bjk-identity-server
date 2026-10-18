@@ -321,7 +321,7 @@ The real apps use these clients (authorization code + PKCE, refresh tokens), con
 | `bjk-mobile` | The phone apps, through the system browser | No secret (public client); `badjockeys://auth/callback` |
 | `bjk-backoffice` | Moderators and admins | Has a secret; adds the `.manage` scopes; non-staff are turned away at sign-in; 10-minute access tokens, 8-hour sessions |
 
-Access tokens for the core API have the audience `bjk-api` and carry `role` and `email_verified`, plus `age_verified` (`"true"`) once the account has passed the age check.
+Access tokens for the core API have the audience `bjk-api` and carry `role`, `email_verified` and `email` (for report and appeal acknowledgements), plus `age_verified` (`"true"`) once the account has passed the age check.
 
 ## Database changes
 
