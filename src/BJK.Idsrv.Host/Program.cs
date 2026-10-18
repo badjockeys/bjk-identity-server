@@ -1,6 +1,7 @@
 using BJK.Idsrv.Host;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
+using BJK.Idsrv.Host.Services.AgeAssurance;
 using BJK.Idsrv.Host.Services.Captcha;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
@@ -9,6 +10,7 @@ using BJK.Modules.Shared.Security;
 using BJK.Modules.User;
 using BJK.Modules.User.Infrastructure.Services;
 using Duende.IdentityServer.EntityFramework.DbContexts;
+using Duende.IdentityServer.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -95,7 +97,11 @@ builder.Services
             });
         options.EnableTokenCleanup = true;
     })
-    .AddAspNetIdentity<BjkIdentityUser>();
+    .AddAspNetIdentity<BjkIdentityUser>()
+    // Adds age_verified=true to tokens once the account has passed the age check.
+    .AddProfileService<AgeAwareProfileService>();
+builder.Services.AddTransient<DefaultClaimsService>();
+builder.Services.AddTransient<IClaimsService, AgeVerifiedClaimsService>();
 
 // The module APIs hosted here accept this server's own access tokens, validated in-process.
 builder.Services.AddAuthentication()
@@ -108,12 +114,16 @@ builder.Services.AddCaptcha(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<LoginFlow>();
+// Age check: the open-source YuNet liveness checker (AgeAssurance:Liveness:Provider=YuNet); the User module adds the
+// rest and refuses Development providers outside Development.
+builder.Services.AddYuNetLiveness(builder.Configuration);
 builder.Services.Configure<AdminBootstrapOptions>(builder.Configuration.GetSection(AdminBootstrapOptions.SectionName));
 
 // Sign-in, registration and account pages (/Account, /Manage).
 builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Manage");
+    options.Conventions.AuthorizePage("/Account/CheckAge");
 });
 builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule());
 

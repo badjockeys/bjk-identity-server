@@ -13,6 +13,14 @@
     <dd>@Model.Email @(Model.EmailConfirmed ? "(confirmed)" : "(not confirmed)")</dd>
     <dt>Two-step</dt>
     <dd>@(Model.TwoFactorEnabled ? "On" : "Off")</dd>
+    <dt>Age check</dt>
+    <dd>@(Model.AgeCheckStatus switch
+    {
+        BJK.Modules.User.Domain.AgeCheckStatus.Passed => "Done: you're 18 or over",
+        BJK.Modules.User.Domain.AgeCheckStatus.DocumentRequired => "Photo ID needed",
+        BJK.Modules.User.Domain.AgeCheckStatus.Failed => "Not passed",
+        _ => "Not done yet",
+    })</dd>
     @if (Model.Roles.Count > 0)
     {
         <dt>Role</dt>
@@ -28,6 +36,10 @@
 }
 
 <div class="links">
+    @if (Model.AgeCheckStatus != BJK.Modules.User.Domain.AgeCheckStatus.Passed)
+    {
+        <a asp-page="/Account/CheckAge" asp-route-returnUrl="/Manage">Check your age (needed to post and comment)</a>
+    }
     <a asp-page="./TwoFactor">Two-step verification</a>
     <a asp-page="./ChangePassword">@(Model.HasPassword ? "Change password" : "Set a password")</a>
     <a asp-page="./ExternalLogins">Google, Apple and Facebook sign-in</a>

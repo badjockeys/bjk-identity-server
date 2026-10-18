@@ -60,7 +60,7 @@ public sealed class RegisterModel(
 
         await signIn.SignInAsync(user, isPersistent: false);
         TempData["Notice"] = "Account created. We've emailed you a link to confirm your address.";
-        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this));
+        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this), newAccount: true);
     }
 
     public sealed class InputModel

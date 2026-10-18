@@ -113,7 +113,7 @@ public sealed class ExternalLoginModel(
 
         await sender.Send(new AddExternalUserCommand(user.Id), HttpContext.RequestAborted);
         await signIn.SignInAsync(user, isPersistent: false, info.LoginProvider);
-        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this));
+        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this), newAccount: true);
     }
 
     /// <summary>Reactivates a deactivated account the person just proved is theirs by signing in with the provider.</summary>

@@ -1,4 +1,5 @@
 using BJK.Modules.User;
+using BJK.Modules.User.Contracts;
 using Duende.IdentityServer;
 using Duende.IdentityServer.Models;
 
@@ -45,8 +46,11 @@ public static class Config
     public const string MobileClientId = "bjk-mobile";
     public const string BackofficeClientId = "bjk-backoffice";
 
-    /// <summary>Claims every API needs about the user, so they're copied into access tokens.</summary>
-    private static readonly string[] ApiUserClaims = ["role", "email_verified"];
+    /// <summary>
+    /// Claims every API needs about the user, so they're copied into access tokens. age_verified is only present
+    /// (as "true") once the account has passed the age check (see AgeAwareProfileService).
+    /// </summary>
+    private static readonly string[] ApiUserClaims = ["role", "email_verified", AgeVerificationClaims.AgeVerified];
 
     public static IEnumerable<IdentityResource> IdentityResources =>
     [

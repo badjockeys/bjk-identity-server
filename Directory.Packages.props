@@ -7,8 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Bad Jockeys modules, from GitHub Packages (bjk-modules). -->
-    <PackageVersion Include="BJK.Modules.User" Version="0.2.0-ci.21" />
-    <PackageVersion Include="BJK.Modules.Email" Version="0.2.0-ci.21" />
+    <PackageVersion Include="BJK.Modules.User" Version="0.2.0-ci.29" />
+    <PackageVersion Include="BJK.Modules.Email" Version="0.2.0-ci.29" />
 
     <PackageVersion Include="Duende.IdentityServer.AspNetIdentity" Version="8.0.9" />
     <PackageVersion Include="Duende.IdentityServer.EntityFramework" Version="8.0.9" />
@@ -21,6 +21,13 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.Facebook" Version="10.0.13" />
     <PackageVersion Include="AspNet.Security.OAuth.Apple" Version="10.0.0" />
+
+    <!-- Age check: YuNet face detection for the liveness check (OpenCV Zoo model, run with ONNX Runtime). -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.22.0" />
+
+    <!-- Tests. xUnit v3 runs on Microsoft Testing Platform (opted in via global.json). -->
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
 
     <!-- QR codes for setting up an authenticator app. -->
     <PackageVersion Include="QRCoder" Version="1.6.0" />

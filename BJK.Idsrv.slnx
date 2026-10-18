@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/BJK.Idsrv.Host/BJK.Idsrv.Host.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BJK.Idsrv.Host.Tests/BJK.Idsrv.Host.Tests.csproj" />
+  </Folder>
 </Solution>

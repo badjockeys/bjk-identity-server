@@ -1,4 +1,6 @@
 using BJK.Idsrv.Host.Data;
+using BJK.Modules.User.Domain;
+using BJK.Modules.User.UseCases.AgeChecks;
 using BJK.Modules.User.UseCases.Confirm;
 using MediatR;
 using Microsoft.AspNetCore.Identity;
@@ -19,6 +21,8 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
 
     public IList<string> Roles { get; private set; } = [];
 
+    public AgeCheckStatus AgeCheckStatus { get; private set; }
+
     public async Task<IActionResult> OnGetAsync()
     {
         var user = await users.GetUserAsync(User);
@@ -32,6 +36,16 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
         TwoFactorEnabled = user.TwoFactorEnabled;
         HasPassword = await users.HasPasswordAsync(user);
         Roles = await users.GetRolesAsync(user);
+        try
+        {
+            AgeCheckStatus = (await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted)).Status;
+        }
+        catch (BJK.Modules.Shared.Exceptions.NotFoundException)
+        {
+            // No account record (shouldn't happen): show "not done yet" rather than failing the page.
+            AgeCheckStatus = AgeCheckStatus.NotChecked;
+        }
+
         return Page();
     }
 

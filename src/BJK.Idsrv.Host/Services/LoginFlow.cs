@@ -48,9 +48,14 @@ public sealed class LoginFlow(
 
     /// <summary>
     /// Called once the user is signed in. Sends staff without two-factor sign-in to set it up, keeps non-staff out of
-    /// the back-office, and otherwise carries on to where the sign-in started.
+    /// the back-office, sends brand-new accounts to "Check your age", and otherwise carries on to where the sign-in
+    /// started.
     /// </summary>
-    public async Task<IActionResult> CompleteAsync(BjkIdentityUser user, string? returnUrl, PageModelUrls page)
+    /// <param name="user">The signed-in user.</param>
+    /// <param name="returnUrl">Where the sign-in started.</param>
+    /// <param name="page">The page doing the redirect.</param>
+    /// <param name="newAccount">True straight after sign-up: the age check comes next (it can be skipped for now).</param>
+    public async Task<IActionResult> CompleteAsync(BjkIdentityUser user, string? returnUrl, PageModelUrls page, bool newAccount = false)
     {
         var target = SafeReturnUrl(returnUrl, page.Url);
         var staff = await IsStaffAsync(user);
@@ -64,6 +69,11 @@ public sealed class LoginFlow(
         if (staff && !user.TwoFactorEnabled)
         {
             return page.RedirectToPage("/Manage/EnableAuthenticator", new { required = true, returnUrl = target });
+        }
+
+        if (newAccount)
+        {
+            return page.RedirectToPage("/Account/CheckAge", new { returnUrl = target });
         }
 
         return page.Redirect(target);
