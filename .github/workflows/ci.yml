@@ -104,10 +104,14 @@ jobs:
         env:
           ASPNETCORE_ENVIRONMENT: Development
         run: |
+          set -o pipefail
           for context in BjkIdentityDbContext PersistedGrantDbContext; do
-            dotnet ef migrations has-pending-model-changes \
+            if ! dotnet ef migrations has-pending-model-changes \
               --project src/BJK.Idsrv.Host --context "$context" \
-              --configuration Release --no-build
+              --configuration Release --no-build 2>&1 | tee ef-output.txt; then
+              tail -15 ef-output.txt | sed 's/^/::error::/'
+              exit 1
+            fi
           done
 
       - name: End-to-end smoke test
