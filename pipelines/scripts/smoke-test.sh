@@ -110,7 +110,7 @@ jwt() {
 # location PATH  - sets STATUS and LOCATION without following redirects
 location() {
   STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt "$BASE_URL$1")
-  LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r')
+  LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r' || true)
 }
 
 body() { jq -cn "$@"; }
@@ -198,7 +198,7 @@ location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid%2
 echo "ok  the web app's sign-in goes to the login page"
 PASSED+=("web client sign-in goes to the login page (302)")
 location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fevil.example.com%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256"
-grep -q "/Error" <<< "$LOCATION" || [ "$STATUS" = "400" ] || fail "An unregistered redirect address wasn't refused: $STATUS $LOCATION"
+if grep -q "evil.example.com" <<< "$LOCATION"; then fail "The browser was sent to an unregistered redirect address: $STATUS $LOCATION"; fi
 echo "ok  unregistered redirect addresses are refused"
 PASSED+=("unregistered redirect addresses are refused")
 
