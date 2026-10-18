@@ -33,6 +33,8 @@ jobs:
         if: steps.check.outputs.exists != 'true'
         env:
           ASPNETCORE_ENVIRONMENT: Development
+          # Never connected to: generating a migration only needs the model.
+          ConnectionStrings__IdentityDatabase: Server=(design-time);Database=idsrv
         run: |
           annotate() { echo "::error::$(grep -E 'error|Error|Exception' "$1" | sort -u | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"; }
           dotnet tool restore
