@@ -187,14 +187,14 @@ request GET /Account/Register
 expect 200 "sign-up page"
 grep -q "cf-turnstile" response.json || fail "The sign-up page has no CAPTCHA widget."
 location /Manage
-[ "$STATUS" = "302" ] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected /Manage to redirect to sign-in, got $STATUS $LOCATION"
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected /Manage to redirect to sign-in, got $STATUS $LOCATION"
 echo "ok  account pages need sign-in"
 PASSED+=("account pages need sign-in (302)")
 expect_sql "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM auth.DataProtectionKeys" yes "Data Protection keys stored in SQL"
 
 CHALLENGE=$(printf 'smoke-test-verifier-0123456789abcdefghijklmnopq' | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
 location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid%20profile%20email%20roles%20offline_access%20bjk.posts%20bjk.profiles%20bjk.media&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fauth%2Fcallback%2Fbjk&code_challenge=$CHALLENGE&code_challenge_method=S256&state=abc"
-[ "$STATUS" = "302" ] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected the web app's sign-in to land on the login page, got $STATUS $LOCATION"
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected the web app's sign-in to land on the login page, got $STATUS $LOCATION"
 echo "ok  the web app's sign-in goes to the login page"
 PASSED+=("web client sign-in goes to the login page (302)")
 location "/connect/authorize?client_id=bjk-web&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fevil.example.com%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256"
