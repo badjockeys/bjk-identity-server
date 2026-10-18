@@ -99,7 +99,7 @@ body() { jq -cn "$@"; }
 
 sql() {
   docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASSWORD" -C \
-    -d BJK_Identity -h -1 -W -Q "SET NOCOUNT ON; $1" | tr -d '\r' | sed '/^$/d'
+    -d idsrv -h -1 -W -Q "SET NOCOUNT ON; $1" | tr -d '\r' | sed '/^$/d'
 }
 
 expect_sql() {

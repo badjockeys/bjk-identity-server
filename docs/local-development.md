@@ -88,7 +88,7 @@ dotnet user-secrets set "Duende:LicenseKey" "<key>" --project src/BJK.Idsrv.Host
 dotnet user-secrets set "MediatR:LicenseKey" "<key>" --project src/BJK.Idsrv.Host
 ```
 
-When someone adds a new setting, they add it to `user-secrets.template.json` in the same pull request, so everyone else knows to load it. You don't need to create the database: the app creates `BJK_Identity` on first start.
+When someone adds a new setting, they add it to `user-secrets.template.json` in the same pull request, so everyone else knows to load it. You don't need to create the database: the app creates `idsrv` on first start.
 
 ## 5. Run it
 
@@ -125,7 +125,7 @@ Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to 
 To look at the data, connect your SQL tool to server `localhost,1433`, user `sa`, the password from your `.env`, and tick "trust server certificate". Handy queries:
 
 ```sql
-USE BJK_Identity;
+USE idsrv;
 SELECT * FROM users.Users;
 SELECT Id, Email, LockoutEnd, AccessFailedCount FROM auth.AspNetUsers;
 SELECT * FROM users.__EFMigrationsHistory;
@@ -134,7 +134,7 @@ SELECT * FROM users.__EFMigrationsHistory;
 Without a SQL tool, you can run the same queries straight in the container:
 
 ```bash
-docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d BJK_Identity -Q "SELECT Email, DisplayName, IsDeleted FROM users.Users"'
+docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d idsrv -Q "SELECT Email, DisplayName, IsDeleted FROM users.Users"'
 ```
 
 ### Email
