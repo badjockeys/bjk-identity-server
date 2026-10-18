@@ -191,7 +191,15 @@ internal sealed class AspNetIdentityService(
         }
 
         var token = await userManager.GeneratePasswordResetTokenAsync(user);
-        await resetSender.SendAsync(email, token, cancellationToken);
+        try
+        {
+            await resetSender.SendAsync(email, token, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Still silent to the caller: an error here would reveal that the email is registered.
+            logger.LogError(ex, "Couldn't send the password reset email to account {UserId}.", user.Id);
+        }
     }
 
     public async Task<AccountResult> ResetPasswordAsync(

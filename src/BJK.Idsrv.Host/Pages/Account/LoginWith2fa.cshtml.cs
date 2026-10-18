@@ -1,10 +1,13 @@
 using System.ComponentModel.DataAnnotations;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
-using BJK.Idsrv.Host.Services.Email;
+using BJK.Modules.Communications;
+using BJK.Modules.Communications.Contracts;
+using BJK.Modules.Communications.Email;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace BJK.Idsrv.Host.Pages.Account;
 
@@ -16,6 +19,8 @@ public sealed class LoginWith2faModel(
     SignInManager<BjkIdentityUser> signIn,
     UserManager<BjkIdentityUser> users,
     IEmailSender email,
+    IOptions<EmailOptions> emailOptions,
+    ILogger<LoginWith2faModel> logger,
     LoginFlow flow)
     : PageModel
 {
@@ -67,12 +72,23 @@ public sealed class LoginWith2faModel(
         }
 
         var code = await users.GenerateTwoFactorTokenAsync(user, TokenOptions.DefaultEmailProvider);
-        await email.SendAsync(
-            new EmailMessage(
-                user.Email,
-                "Your Bad Jockeys sign-in code",
-                $"Your sign-in code is {code}. It expires in a few minutes.\n\nIf you didn't try to sign in, change your password."),
-            HttpContext.RequestAborted);
+        var message = BrandedEmail.Create("Your sign-in code")
+            .Paragraph("Enter this code to finish signing in to Bad Jockeys. It expires in a few minutes.")
+            .Code("Sign-in code", code)
+            .Note("If you didn't try to sign in, change your password.")
+            .ToMessage(user.Email, "Your Bad Jockeys sign-in code", emailOptions.Value.LogoUrl);
+        try
+        {
+            await email.SendAsync(message, HttpContext.RequestAborted);
+        }
+        catch (MessageDeliveryException ex)
+        {
+            logger.LogError(ex, "Couldn't email a sign-in code to account {UserId}.", user.Id);
+            await LoadAsync(user);
+            Method = "email";
+            ModelState.AddModelError(string.Empty, "We couldn't send the code just now. Wait a minute and try again.");
+            return Page();
+        }
 
         return RedirectToPage(new { ReturnUrl, RememberMe, Method = "email" });
     }

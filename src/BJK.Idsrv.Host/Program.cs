@@ -2,7 +2,7 @@ using BJK.Idsrv.Host;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.Captcha;
-using BJK.Idsrv.Host.Services.Email;
+using BJK.Modules.Communications;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
@@ -103,7 +103,7 @@ builder.Services.AddAuthentication()
 
 // --- Modules ---
 builder.Services.AddScoped<IIdentityService, AspNetIdentityService>();
-builder.Services.AddEmail(builder.Configuration);
+builder.Services.Configure<EmailLinkOptions>(builder.Configuration.GetSection(EmailLinkOptions.SectionName));
 builder.Services.AddCaptcha(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
@@ -115,7 +115,7 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Manage");
 });
-builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName));
+builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new CommunicationsModule());
 
 builder.Services.AddHealthChecks();
 

@@ -72,6 +72,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | Setting | Local value |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `.env` |
+| `Email:Provider`, `Sms:Provider` | `Log`: emails and texts go to the console instead of being sent (see Email below). Leave the SendGrid and Twilio placeholders unless you switch provider. |
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
 | `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
@@ -202,7 +203,17 @@ docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U s
 
 ### Email
 
-No email is sent yet. `Email:Provider` is `Log`, so in Development each email (including the password reset code and link) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. SendGrid will replace this; its API key will go in user secrets / Key Vault as `Email:SendGrid:ApiKey`.
+Emails go through the Communications module from bjk-modules. Locally `Email:Provider` is `Log`, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
+
+To send real emails from your machine, for example to see the HTML version in your inbox:
+
+```bash
+dotnet user-secrets set "Email:Provider" "SendGrid" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Email:SendGrid:ApiKey" "<a key with the Mail Send permission>" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Email:FromAddress" "<an address verified in SendGrid>" --project src/BJK.Idsrv.Host
+```
+
+The app won't start if `Provider` is `SendGrid` and the key or sender is missing. Set `Email:SendGrid:SandboxMode` to `true` to have SendGrid check requests without delivering them.
 
 ### CAPTCHA
 

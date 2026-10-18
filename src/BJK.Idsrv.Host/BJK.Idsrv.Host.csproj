@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="BJK.Modules.User" />
+    <PackageReference Include="BJK.Modules.Communications" />
     <PackageReference Include="Duende.IdentityServer.AspNetIdentity" />
     <PackageReference Include="Duende.IdentityServer.EntityFramework" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
