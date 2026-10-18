@@ -74,7 +74,7 @@ internal sealed class AspNetIdentityService(
 
         // Ends sign-in sessions and revokes refresh tokens, so the user is signed out everywhere.
         await userManager.UpdateSecurityStampAsync(user);
-        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = user.Id });
+        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = user.Id }, cancellationToken);
     }
 
     public async Task EnableAccountAsync(string identityId, CancellationToken cancellationToken)
@@ -91,7 +91,7 @@ internal sealed class AspNetIdentityService(
 
     public async Task DeleteAccountAsync(string identityId, CancellationToken cancellationToken)
     {
-        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = identityId });
+        await grants.RemoveAllAsync(new PersistedGrantFilter { SubjectId = identityId }, cancellationToken);
 
         var user = await userManager.FindByIdAsync(identityId);
         if (user is not null)
