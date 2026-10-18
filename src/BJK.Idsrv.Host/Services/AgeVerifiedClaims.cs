@@ -21,10 +21,10 @@ public sealed class AgeAwareProfileService(
     IAgeVerificationLookup ageVerification)
     : ProfileService<BjkIdentityUser>(userManager, claimsFactory, logger)
 {
-    public override async Task GetProfileDataAsync(ProfileDataRequestContext context)
+    public override async Task GetProfileDataAsync(ProfileDataRequestContext context, CancellationToken ct)
     {
-        await base.GetProfileDataAsync(context);
-        if (await AgeVerifiedClaims.IsVerifiedAsync(context.Subject, ageVerification, CancellationToken.None))
+        await base.GetProfileDataAsync(context, ct);
+        if (await AgeVerifiedClaims.IsVerifiedAsync(context.Subject, ageVerification, ct))
         {
             AgeVerifiedClaims.AddTo(context.IssuedClaims);
         }
@@ -41,10 +41,11 @@ public sealed class AgeVerifiedClaimsService(DefaultClaimsService inner, IAgeVer
         ClaimsPrincipal subject,
         ResourceValidationResult resources,
         bool includeAllIdentityClaims,
-        ValidatedRequest request)
+        ValidatedRequest request,
+        CancellationToken ct)
     {
-        var claims = (await inner.GetIdentityTokenClaimsAsync(subject, resources, includeAllIdentityClaims, request)).ToList();
-        if (await AgeVerifiedClaims.IsVerifiedAsync(subject, ageVerification, CancellationToken.None))
+        var claims = (await inner.GetIdentityTokenClaimsAsync(subject, resources, includeAllIdentityClaims, request, ct)).ToList();
+        if (await AgeVerifiedClaims.IsVerifiedAsync(subject, ageVerification, ct))
         {
             AgeVerifiedClaims.AddTo(claims);
         }
@@ -55,8 +56,9 @@ public sealed class AgeVerifiedClaimsService(DefaultClaimsService inner, IAgeVer
     public Task<IEnumerable<Claim>> GetAccessTokenClaimsAsync(
         ClaimsPrincipal subject,
         ResourceValidationResult resources,
-        ValidatedRequest request) =>
-        inner.GetAccessTokenClaimsAsync(subject, resources, request);
+        ValidatedRequest request,
+        CancellationToken ct) =>
+        inner.GetAccessTokenClaimsAsync(subject, resources, request, ct);
 }
 
 internal static class AgeVerifiedClaims
