@@ -1,0 +1,35 @@
+@page
+@model ExternalLoginModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+@switch (Model.Outcome)
+{
+    case ExternalLoginModel.Result.Deactivated:
+        <h1>Reactivate your account?</h1>
+        <p class="lead">Your account is deactivated and will be deleted for good 90 days after it was deactivated. Reactivate it and everything comes back as it was.</p>
+        <form method="post" asp-page-handler="Reactivate">
+            <input type="hidden" asp-for="ReturnUrl" />
+            <button type="submit">Reactivate and sign in</button>
+        </form>
+        <a class="button secondary" asp-page="./Login">Cancel</a>
+        break;
+
+    case ExternalLoginModel.Result.EmailInUse:
+        <h1>You already have an account</h1>
+        <p class="lead">There's already a Bad Jockeys account for @Model.Email. Sign in with your password, then link @Model.ProviderName from your account page so you can use it next time.</p>
+        <a class="button" asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Sign in</a>
+        break;
+
+    case ExternalLoginModel.Result.NoEmail:
+        <h1>We need your email address</h1>
+        <p class="lead">@Model.ProviderName didn't share an email address with us. Try again and allow it, or create an account with your email instead.</p>
+        <a class="button" asp-page="./Register" asp-route-returnUrl="@Model.ReturnUrl">Create an account</a>
+        break;
+
+    default:
+        <h1>Sign-in didn't work</h1>
+        <p class="lead">Something went wrong signing in with @(Model.ProviderName ?? "that provider"). Please try again.</p>
+        <a class="button" asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Back to sign in</a>
+        break;
+}

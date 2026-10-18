@@ -1,0 +1,11 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "Something went wrong";
+}
+<h1>Something went wrong</h1>
+<p class="lead">@(Model.Message ?? "Sorry, we couldn't complete that. Please go back and try again.")</p>
+@if (Model.RequestId is not null)
+{
+    <p><small>Reference: @Model.RequestId</small></p>
+}

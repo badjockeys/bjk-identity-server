@@ -1,6 +1,6 @@
 # Running the identity server locally
 
-This runs the identity server on your machine against SQL Server in Docker, so you can register and manage users through the User module and see the rows in the database. It works the same on macOS (including Apple Silicon), Windows and Linux.
+This runs the identity server on your machine against SQL Server and RabbitMQ in Docker. You can register users, deactivate and reactivate them, and see the rows in the database and the events in RabbitMQ. It works the same on macOS (including Apple Silicon), Windows and Linux.
 
 ## 1. Prerequisites
 
@@ -31,30 +31,30 @@ The User module comes from the private `badjockeys` package feed on GitHub Packa
 
    Editors only see the variable if started from a terminal that has it, or after you log out and back in. On macOS, `open -a Rider` from that terminal is the simplest way.
 
-## 3. Start SQL Server
+## 3. Start SQL Server and RabbitMQ
 
-Choose a password for the local SQL Server's `sa` account. It goes in a `.env` file at the repo root, which is git-ignored, so it never reaches GitHub:
+Choose passwords for the local SQL Server's `sa` account and for RabbitMQ. They go in a `.env` file at the repo root. The file is git-ignored, so it never reaches GitHub:
 
 ```bash
 cp .env.example .env
-# edit .env: BJK_SQL_PASSWORD=<your password>
-# (8+ characters with upper case, lower case, a digit and a symbol)
+# edit .env: BJK_SQL_PASSWORD=<8+ characters with upper case, lower case, a digit and a symbol>
+#            BJK_RABBITMQ_PASSWORD=<any password>
 ```
 
-Then start SQL Server:
+Then start them:
 
 ```bash
 docker compose up -d
-docker compose ps        # wait until the sql service shows "healthy" (about 30 seconds)
+docker compose ps        # wait until both services show "healthy" (about 30 seconds)
 ```
 
-This runs SQL Server 2022 on `localhost,1433`. The data lives in a Docker volume, so it's still there after `docker compose stop` or a reboot.
+This runs SQL Server 2022 on `localhost,1433` and RabbitMQ on `localhost:5672`. bjk-core uses the same two containers. The RabbitMQ dashboard is at http://localhost:15672 (user `bjk`, your `.env` password). The data lives in Docker volumes, so it's still there after `docker compose stop` or a reboot.
 
 | Command | Does |
 |---|---|
-| `docker compose stop` | Stops SQL Server and keeps the data |
-| `docker compose up -d` | Starts it again |
-| `docker compose down -v` | Removes the container **and the data**, so the next app start builds a fresh database |
+| `docker compose stop` | Stops both and keeps the data |
+| `docker compose up -d` | Starts them again |
+| `docker compose down -v` | Removes the containers **and the data**, so the next app start builds a fresh database |
 
 ## 4. Load your settings into user secrets
 
@@ -72,13 +72,19 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | Setting | Local value |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `.env` |
-| `Email:FromAddress`, `Email:PasswordResetUrl` | Placeholder sender, and the web app's future reset page |
-| `Captcha:TurnstileSecretKey` | Cloudflare's public test key (see CAPTCHA below) |
+| `Email:Provider` | `Log`: emails go to the console instead of being sent (see Email below). Leave the SendGrid placeholder unless you switch provider. |
+| `Email:FromAddress` | Placeholder sender |
+| `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
+| `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
+| `Messaging:ConnectionUri` | The Docker RabbitMQ, with your password from `.env` |
+| `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
+| `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
+| `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
 
 ```bash
-dotnet user-secrets set "Email:PasswordResetUrl" "http://localhost:3000/reset-password" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Admin:BootstrapEmails:0" "you@example.com" --project src/BJK.Idsrv.Host
 ```
 
 Optional, when you have them:
@@ -110,23 +116,81 @@ On later starts each line says `database schema is up to date`.
 
 ## 6. Try it
 
+### The sign-in pages
+
+Open https://localhost:5001: it takes you to sign in. From there you can:
+
+- **Create an account.** The CAPTCHA widget passes automatically with the test keys. The confirmation email is written to the console; open its link to confirm.
+- **Sign in.**
+- **Reset a forgotten password.** The email goes to the console.
+- **Reactivate a deactivated account.**
+- **Manage your account (`/Manage`):** turn on two-step verification with an authenticator app (scan the QR code) or emailed codes, save recovery codes, change your password, link Google, Apple or Facebook, or deactivate.
+
+These are the pages the web app, phone app and back-office send people to; none of them has its own sign-in form.
+
+| Page | |
+|---|---|
+| `/Account/Login`, `/Account/Register` | Sign in, sign up (plus social buttons once configured) |
+| `/Account/LoginWith2fa`, `/Account/LoginWithRecoveryCode` | Second step: authenticator code, emailed code, or recovery code |
+| `/Account/ForgotPassword`, `/Account/ResetPassword` | Forgot password |
+| `/Account/ConfirmEmail` | Where the confirmation email's link lands |
+| `/Account/Reactivate` | Bring back a deactivated account |
+| `/Manage` | Account overview, two-step, password, social sign-in, deactivate |
+
+### Staff roles
+
+Moderators and Admins must use two-step verification. A staff member without it is sent to set up an authenticator app straight after signing in, then signs in again. Their staff rights (the `/api/admin` endpoints) only count when the session used two-step.
+
+To make yourself the first Admin:
+1. Register and confirm your email.
+2. Put your email in `Admin:BootstrapEmails` and restart.
+3. From then on, admins give or take roles with `PUT /api/admin/users/{id}/roles` (`["Moderator"]`, `["Admin"]` or `[]`), later from the back-office.
+
+### Social sign-in
+
+Each provider switches on when its keys are in your user secrets. Every provider has to know this server's callback address:
+
+| Provider | Where to get keys | Callback address to register |
+|---|---|---|
+| Google | Google Cloud console → APIs & Services → Credentials → OAuth client (Web application) | `https://localhost:5001/signin-google` |
+| Facebook | developers.facebook.com → your app → Facebook Login | `https://localhost:5001/signin-facebook` |
+| Apple | developer.apple.com → Certificates, IDs & Profiles: a Services ID (the client id), a Sign in with Apple key (.p8, key id) and your team id. Apple needs a real HTTPS domain, so try it on DEV rather than localhost. | `https://<domain>/signin-apple` |
+
+A first social sign-in creates an account with the provider's email (already confirmed). If an account with that email already exists, the two are never joined automatically; the person signs in with their password and links the provider on `/Manage`.
+
+### The API walkthrough
+
 Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to bottom. It works in Rider, Visual Studio, and VS Code with the REST Client extension.
 
-| Step | What happens | Where to look in SQL |
+| Step | What happens | Where to look |
 |---|---|---|
-| Register | Sign-in account + profile created | `auth.AspNetUsers`, `users.Users` |
+| Register | Sign-in account and account record created | `auth.AspNetUsers`, `users.Accounts` |
 | Sign in (password grant) | Token issued; signing key created on first use | `idsrv.Keys` |
-| Update | Display name changed | `users.Users.DisplayName`, `UpdatedAt` |
-| List (admin token) | All active users | |
+| My account | Email (from the sign-in account) and status | |
+| Download my data | JSON file of what the identity server holds about you | |
+| List (admin token) | All accounts, optionally by status | |
 | Forgot password | Reset email written to the app console (not sent yet) | |
 | Confirm reset | Password changed | `auth.AspNetUsers.PasswordHash` |
-| Delete | Profile soft-deleted, sign-in disabled | `users.Users.IsDeleted = 1`, `auth.AspNetUsers.LockoutEnd` |
+| Deactivate | Sign-in locked, refresh tokens revoked, deletion due in 90 days, event published | `users.Accounts.Status`, `DeletionDueAt`; `users.Outbox`; RabbitMQ `bjk.users` exchange |
+| Reactivate | Sign-in works again, deletion cancelled | `users.Accounts` |
+| Admin delete | Sign-in account and account record deleted now; `Deleted` event published | |
+
+The display name and handle aren't here: they're in the user's profile in bjk-core.
+
+**Seeing the events.** The identity server publishes to the `bjk.users` exchange. With nothing bound to it, RabbitMQ drops the messages. To watch them, either run bjk-core, which creates its `bjk-core.user-events` queue, or bind a queue to the exchange in the dashboard (Queues, Add queue, then Bindings, from `bjk.users`).
+
+**Trying the 90-day deletion without waiting.** Deactivate an account, then set its deadline in the past and restart the app (the retention job runs at startup and then hourly):
+
+```sql
+UPDATE users.Accounts SET DeletionDueAt = DATEADD(minute, -1, SYSDATETIMEOFFSET()) WHERE Id = '<user id>';
+```
 
 To look at the data, connect your SQL tool to server `localhost,1433`, user `sa`, the password from your `.env`, and tick "trust server certificate". Handy queries:
 
 ```sql
 USE idsrv;
-SELECT * FROM users.Users;
+SELECT * FROM users.Accounts;
+SELECT Type, Payload, OccurredAt, PublishedAt FROM users.Outbox ORDER BY OccurredAt;
 SELECT Id, Email, LockoutEnd, AccessFailedCount FROM auth.AspNetUsers;
 SELECT * FROM users.__EFMigrationsHistory;
 ```
@@ -134,12 +198,22 @@ SELECT * FROM users.__EFMigrationsHistory;
 Without a SQL tool, you can run the same queries straight in the container:
 
 ```bash
-docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d idsrv -Q "SELECT Email, DisplayName, IsDeleted FROM users.Users"'
+docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d idsrv -Q "SELECT Id, Status, DeletionDueAt FROM users.Accounts"'
 ```
 
 ### Email
 
-No email is sent yet. `Email:Provider` is `Log`, so in Development each email (including the password reset code and link) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. SendGrid will replace this; its API key will go in user secrets / Key Vault as `Email:SendGrid:ApiKey`.
+Emails go through the Email module from bjk-modules. Locally `Email:Provider` is `Log`, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
+
+To send real emails from your machine, for example to see the HTML version in your inbox:
+
+```bash
+dotnet user-secrets set "Email:Provider" "SendGrid" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Email:SendGrid:ApiKey" "<a key with the Mail Send permission>" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "Email:FromAddress" "<an address verified in SendGrid>" --project src/BJK.Idsrv.Host
+```
+
+The app won't start if `Provider` is `SendGrid` and the key or sender is missing. Set `Email:SendGrid:SandboxMode` to `true` to have SendGrid check requests without delivering them.
 
 ### CAPTCHA
 
@@ -163,10 +237,18 @@ These two clients exist **only when `ASPNETCORE_ENVIRONMENT=Development`**:
 
 | Client | Grant | Scopes | Use |
 |---|---|---|---|
-| `bjk-local-user` / `local-user-secret` | password | `openid profile email bjk.users` | Sign in as a user without a login page |
-| `bjk-local-admin` / `local-admin-secret` | client credentials | `bjk.users bjk.users.manage` | Admin calls such as listing users |
+| `bjk-local-user` / `local-user-secret` | password | user scopes, plus the `.manage` scopes | Sign in as a user without the login page. Staff rights never work with it, because there's no two-step. |
+| `bjk-local-admin` / `local-admin-secret` | client credentials | user and `.manage` scopes | Admin calls such as listing accounts or setting roles |
 
-The real web and mobile apps will sign in through a login page (authorization code + PKCE). That comes with the web app.
+The real apps use these clients (authorization code + PKCE, refresh tokens), configured under `Clients` in your user secrets:
+
+| Client | Who | Notes |
+|---|---|---|
+| `bjk-web` | The website (Next.js), signing in on its server | Has a secret; 15-minute access tokens, 30-day sliding refresh tokens |
+| `bjk-mobile` | The phone apps, through the system browser | No secret (public client); `badjockeys://auth/callback` |
+| `bjk-backoffice` | Moderators and admins | Has a secret; adds the `.manage` scopes; non-staff are turned away at sign-in; 10-minute access tokens, 8-hour sessions |
+
+Access tokens for the core API have the audience `bjk-api` and carry `role` and `email_verified`.
 
 ## Database changes
 
@@ -183,6 +265,8 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <Name> --project src
 
 ## Troubleshooting
 
+- **`The ConnectionUri field is required`** (Messaging): add `Messaging:ConnectionUri` to your user secrets (step 4). **`None of the specified endpoints were reachable`**: RabbitMQ isn't running (`docker compose ps`), or the password doesn't match `.env`.
+- **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d` to start from an empty database.
 - **`NU1301` / `401 Unauthorized` on restore**: the NuGet token variable isn't set in this terminal, or has expired (step 2). Check with `echo $NuGetPackageSourceCredentials_badjockeys`.
 - **`Connection string 'IdentityDatabase' is not configured`** or **`Captcha:TurnstileSecretKey is required`**: your user secrets aren't loaded (step 4), or the app isn't running in Development. The `https` launch profile sets Development.
 - **`Login failed for user 'sa'`**: the password in your user secret doesn't match `.env`. If you changed `.env` after the container was first created, SQL Server still has the old password: run `docker compose down -v` (this deletes the local data) and `docker compose up -d`.

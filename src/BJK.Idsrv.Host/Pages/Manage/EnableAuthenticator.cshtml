@@ -1,0 +1,26 @@
+@page
+@model EnableAuthenticatorModel
+@{
+    ViewData["Title"] = "Set up an authenticator app";
+}
+<h1>Set up an authenticator app</h1>
+@if (Model.Required)
+{
+    <p class="notice">Moderators and admins must use two-step verification. Set it up to carry on.</p>
+}
+<p class="lead">Use an app such as Google Authenticator, Microsoft Authenticator or 1Password.</p>
+<ol>
+    <li>Scan this code with the app, or type in the key.</li>
+    <li>Enter the 6-digit code the app shows.</li>
+</ol>
+<div class="qr">@Html.Raw(Model.QrSvg)</div>
+<p>Key: <span class="key">@Model.SharedKey</span></p>
+
+<form method="post">
+    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="Required" />
+    <input type="hidden" asp-for="ReturnUrl" />
+    <label asp-for="Code">Code from the app</label>
+    <input asp-for="Code" type="text" inputmode="numeric" autocomplete="one-time-code" autofocus />
+    <button type="submit">Turn on</button>
+</form>

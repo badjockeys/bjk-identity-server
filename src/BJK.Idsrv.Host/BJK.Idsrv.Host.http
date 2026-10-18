@@ -15,7 +15,8 @@ GET {{host}}/health
 ### OpenID Connect discovery document
 GET {{host}}/.well-known/openid-configuration
 
-### 1. Register a user (anonymous, needs a CAPTCHA token). Creates the sign-in account (auth.AspNetUsers) and the profile (users.Users).
+### 1. Register a user (anonymous, needs a CAPTCHA token). Creates the sign-in account (auth.AspNetUsers)
+# and the account record (users.Accounts). The handle and display name go in the core profile, not here.
 # @name register
 POST {{host}}/api/users
 Content-Type: application/json
@@ -23,8 +24,7 @@ X-Captcha-Token: {{captcha}}
 
 {
   "email": "{{email}}",
-  "password": "{{password}}",
-  "displayName": "Road Hog"
+  "password": "{{password}}"
 }
 
 ### 2. Sign in as that user (local test client, password grant)
@@ -34,35 +34,26 @@ Content-Type: application/x-www-form-urlencoded
 
 grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=openid profile email bjk.users&username={{email}}&password={{password}}
 
-### 3. My profile
+### 3. My account: email, status, dates
 GET {{host}}/api/users/me
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 
-### 4. Update my display name
-PUT {{host}}/api/users/{{register.response.body.$.id}}
-Authorization: Bearer {{userToken.response.body.$.access_token}}
-Content-Type: application/json
-
-{
-  "displayName": "Lane Hogger"
-}
-
-### 5. Get my profile by id
-GET {{host}}/api/users/{{register.response.body.$.id}}
+### 4. Download my data (what the identity server holds about me), as a JSON file
+GET {{host}}/api/me/data-export
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 
-### 6. Admin token (local test client, client credentials)
+### 5. Admin token (local test client, client credentials)
 # @name adminToken
 POST {{host}}/connect/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=client_credentials&client_id=bjk-local-admin&client_secret=local-admin-secret&scope=bjk.users bjk.users.manage
 
-### 7. List all users (admin)
+### 6. List all accounts (admin). Add &status=Deactivated to see only deactivated ones.
 GET {{host}}/api/users?page=1&pageSize=20
 Authorization: Bearer {{adminToken.response.body.$.access_token}}
 
-### 8. Forgot password (anonymous, needs a CAPTCHA token). Always 202.
+### 7. Forgot password (anonymous, needs a CAPTCHA token). Always 202.
 # Email isn't sent yet: in Development the whole email is written to the app's console. Copy the "Password reset code".
 POST {{host}}/api/users/password-reset
 Content-Type: application/json
@@ -72,7 +63,7 @@ X-Captcha-Token: {{captcha}}
   "email": "{{email}}"
 }
 
-### 9. Set a new password. Paste the reset code from the console, then sign in again (step 2) with the new password.
+### 8. Set a new password. Paste the reset code from the console, then sign in again (step 2) with the new password.
 POST {{host}}/api/users/password-reset/confirm
 Content-Type: application/json
 
@@ -82,12 +73,40 @@ Content-Type: application/json
   "newPassword": "N3wPassw0rd!"
 }
 
-### 10. Delete the user (soft delete + sign-in disabled). Works with the user's own token or the admin token.
-DELETE {{host}}/api/users/{{register.response.body.$.id}}
-Authorization: Bearer {{adminToken.response.body.$.access_token}}
+### 9. Deactivate my account (confirm with my password). Signed out everywhere; deleted in 90 days unless I come back.
+# Watch users.Accounts (Status, DeletionDueAt), users.Outbox (the event) and the bjk.users exchange in RabbitMQ.
+POST {{host}}/api/users/me/deactivate
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+Content-Type: application/json
 
-### 11. Signing in now fails with invalid_grant
+{
+  "password": "{{password}}"
+}
+
+### 10. Signing in now fails with invalid_grant
 POST {{host}}/connect/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=bjk.users&username={{email}}&password={{password}}
+
+### 11. Reactivate within the 90 days (anonymous, needs a CAPTCHA token). Then step 2 works again.
+POST {{host}}/api/users/reactivate
+Content-Type: application/json
+X-Captcha-Token: {{captcha}}
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 12. Admin: deactivate, reactivate, or permanently delete now (skips the 90 days)
+POST {{host}}/api/users/{{register.response.body.$.id}}/deactivate
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
+
+###
+POST {{host}}/api/users/{{register.response.body.$.id}}/reactivate
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
+
+###
+DELETE {{host}}/api/users/{{register.response.body.$.id}}
+Authorization: Bearer {{adminToken.response.body.$.access_token}}

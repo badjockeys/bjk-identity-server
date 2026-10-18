@@ -1,0 +1,36 @@
+@page
+@model ExternalLoginsModel
+@{
+    ViewData["Title"] = "Sign-in providers";
+}
+<h1>Google, Apple and Facebook</h1>
+@if (TempData["Notice"] is string notice)
+{
+    <p class="notice ok">@notice</p>
+}
+@if (Model.Linked.Count == 0 && Model.Available.Count == 0)
+{
+    <p class="lead">Social sign-in isn't switched on yet.</p>
+}
+@foreach (var login in Model.Linked)
+{
+    <form method="post" asp-page-handler="Remove">
+        <input type="hidden" name="loginProvider" value="@login.LoginProvider" />
+        <input type="hidden" name="providerKey" value="@login.ProviderKey" />
+        <p>@(login.ProviderDisplayName ?? login.LoginProvider) is linked.</p>
+        @if (Model.CanRemove)
+        {
+            <button type="submit" class="secondary">Unlink @(login.ProviderDisplayName ?? login.LoginProvider)</button>
+        }
+    </form>
+}
+@if (Model.Available.Count > 0)
+{
+    <form method="post" asp-page-handler="Link" class="providers">
+        @foreach (var provider in Model.Available)
+        {
+            <button type="submit" class="secondary" name="provider" value="@provider.Name">Link @(provider.DisplayName ?? provider.Name)</button>
+        }
+    </form>
+}
+<div class="links"><a asp-page="./Index">Back to your account</a></div>

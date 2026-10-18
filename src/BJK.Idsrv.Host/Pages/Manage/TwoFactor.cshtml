@@ -1,0 +1,46 @@
+@page
+@model TwoFactorModel
+@{
+    ViewData["Title"] = "Two-step verification";
+}
+<h1>Two-step verification</h1>
+@if (TempData["Notice"] is string notice)
+{
+    <p class="notice ok">@notice</p>
+}
+@if (Model.IsStaff)
+{
+    <p class="notice">As a moderator or admin, you must use two-step verification. It can't be turned off.</p>
+}
+
+@if (Model.Enabled)
+{
+    <p class="lead">On. You'll be asked for a code when you sign in@(Model.HasAuthenticator ? " (from your authenticator app, or by email)" : " (by email)").</p>
+    <p>Recovery codes left: <strong>@Model.RecoveryCodesLeft</strong></p>
+    <a class="button secondary" asp-page="./EnableAuthenticator">@(Model.HasAuthenticator ? "Set up a different authenticator app" : "Use an authenticator app")</a>
+    <form method="post" asp-page-handler="NewRecoveryCodes">
+        <button type="submit" class="secondary">Get new recovery codes</button>
+    </form>
+    @if (!Model.IsStaff)
+    {
+        <form method="post" asp-page-handler="Disable">
+            <button type="submit" class="danger">Turn off two-step verification</button>
+        </form>
+    }
+}
+else
+{
+    <p class="lead">Add a second step to signing in, so a stolen password isn't enough to get into your account.</p>
+    <a class="button" asp-page="./EnableAuthenticator">Use an authenticator app (recommended)</a>
+    @if (Model.EmailConfirmed)
+    {
+        <form method="post" asp-page-handler="EnableEmail">
+            <button type="submit" class="secondary">Use codes sent by email</button>
+        </form>
+    }
+    else
+    {
+        <p><small>Confirm your email address to use codes sent by email.</small></p>
+    }
+}
+<div class="links"><a asp-page="./Index">Back to your account</a></div>

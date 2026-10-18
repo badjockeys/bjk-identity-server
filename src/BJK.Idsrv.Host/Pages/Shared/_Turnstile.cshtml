@@ -1,0 +1,5 @@
+@using Microsoft.Extensions.Options
+@using BJK.Idsrv.Host.Services.Captcha
+@inject IOptions<CaptchaOptions> Captcha
+<div class="cf-turnstile" data-sitekey="@Captcha.Value.TurnstileSiteKey" style="margin-top:16px"></div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>

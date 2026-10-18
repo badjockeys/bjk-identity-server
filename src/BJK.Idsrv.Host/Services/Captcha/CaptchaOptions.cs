@@ -14,5 +14,14 @@ public sealed class CaptchaOptions
     /// </summary>
     public string? TurnstileSecretKey { get; set; }
 
+    /// <summary>
+    /// Turnstile site key, used by the widget on the sign-up, forgot password and reactivate pages. Not secret.
+    /// Locally it's Cloudflare's "always passes" test site key, 1x00000000000000000000AA.
+    /// </summary>
+    public string TurnstileSiteKey { get; set; } = "1x00000000000000000000AA";
+
+    /// <summary>The form field the Turnstile widget puts its token in.</summary>
+    public const string FormField = "cf-turnstile-response";
+
     public Uri TurnstileVerifyUrl { get; set; } = new("https://challenges.cloudflare.com/turnstile/v0/siteverify");
 }
