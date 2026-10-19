@@ -4,7 +4,7 @@ Identity server for the Bad Jockeys platform. It signs users in, issues tokens t
 
 ```
 .github/workflows/   CI (GitHub Actions only reads workflows from here)
-docker-compose.yml   local SQL Server
+docker-compose.yml   local SQL Server (also holds bjk-core's database and its message queues)
 user-secrets.template.json   the settings each developer loads into user secrets
 docs/                local-development.md: run it on your machine
 pipelines/           scripts the workflows call (end-to-end smoke test)
@@ -43,7 +43,7 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 | `Email:Provider` | `Log` (default): emails aren't sent; in Development they're written to the log. `SendGrid`: sent through SendGrid (needs `Email:SendGrid:ApiKey`, secret). |
 | `Email:LogoUrl`, `Email:ReplyToAddress` | Optional: PNG logo at the top of emails, and a reply-to address. |
 | `Email:FromAddress`, `Email:PasswordResetUrl` | Sender address, and the web app page that reset links point to. |
-| `Messaging:ConnectionUri` | RabbitMQ. Required. User lifecycle events (deactivated, reactivated, deleted) are published to the `bjk.users` exchange for bjk-core. |
+| `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` (`Messaging`), `Messaging:CreateTables` (`false`) | Required. User lifecycle events (deactivated, reactivated, deleted) are saved in `users.Outbox` with the account change, then published to the `bjk.users` topic: a row in bjk-core's queue table `[messaging].[bjk-core.user-events]` in the app database (`badjockeys`). The app won't start without it. In Azure this connection uses its own database user in `badjockeys` with `SELECT` on `messaging.subscriptions` and `INSERT` on the `messaging` schema only, so the identity server can queue events but can't read or change bjk-core's data (setup script in the bjk-modules README, "Messaging"). Events wait in the outbox until bjk-core has started once and subscribed. |
 | `Users:DeactivationGracePeriod`, `Users:RetentionCheckInterval` | Defaults: 90 days before a deactivated account is deleted; check hourly. |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Each app's redirect addresses (and secret for web and back-office). A client only exists when its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Accounts made Admin at startup (must exist with a confirmed email). For appointing the first admin. |

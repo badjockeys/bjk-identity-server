@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end smoke test: starts the identity server against a real SQL Server and RabbitMQ, exercises the
-# User module through its HTTP API and the token endpoint, checks the rows in the database and the events
-# published to RabbitMQ, then restarts the app to prove startup migrations keep existing data and the
+# End-to-end smoke test: starts the identity server against a real SQL Server, exercises the User module through
+# its HTTP API and the token endpoint, checks the rows in the database and the events written to bjk-core's queue
+# table (as bjk-core would read them), then restarts the app to prove startup migrations keep existing data and the
 # retention job deletes accounts whose grace period has ended. The age check runs with the Development providers:
 # an estimate of 30 passes; on the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts
 # Cloudflare's CF-IPCountry header: sign-up from GB works, from FR or with no header it's refused.
@@ -10,9 +10,10 @@
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
 #   SQL_CONTAINER, SQL_PASSWORD          docker container running SQL Server, and its sa password
 #   ASPNETCORE_ENVIRONMENT=Development   (the local test clients only exist in Development)
-#   Messaging__ConnectionUri             RabbitMQ the app publishes user lifecycle events to
-# Optional, to check the published events through the RabbitMQ management API:
-#   RABBITMQ_MANAGEMENT_URL, RABBITMQ_USER, RABBITMQ_PASSWORD
+#   ConnectionStrings__Messaging         bjk-core's database (badjockeys) as MESSAGING_LOGIN, where events are queued
+#   Messaging__ConnectionStringName=Messaging, Messaging__CreateTables=false
+#   MESSAGING_LOGIN, MESSAGING_PASSWORD  the restricted login this script creates for that connection
+# bjk-core doesn't run here, so the script creates its queue table and subscription the way bjk-core does on startup.
 set -euo pipefail
 
 BASE_URL=${BASE_URL:-http://localhost:5000}
@@ -143,30 +144,55 @@ wait_for_sql() {
   fail "$label: expected '$expected', got '$actual' after 60 seconds"
 }
 
-# RabbitMQ management API: a test queue bound to the user events exchange collects every published event.
-EVENTS_QUEUE=smoke-test.user-events
-rabbit() {
-  curl -fs -u "$RABBITMQ_USER:$RABBITMQ_PASSWORD" -H 'Content-Type: application/json' "$@"
+# bjk-core's side of the user events, which bjk-core creates on startup: the badjockeys database, its queue table
+# [messaging].[bjk-core.user-events] (Rebus's SQL Server table plus the lease and delivery count columns) and, once
+# "bjk-core starts", its subscription to the bjk.users topic. Plus the identity server's restricted login.
+: "${MESSAGING_LOGIN:?}" "${MESSAGING_PASSWORD:?}"
+EVENTS_TABLE='[messaging].[bjk-core.user-events]'
+core_sql() {
+  docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQL_PASSWORD" -C -b \
+    -d "${2:-badjockeys}" -h -1 -W -Q "SET NOCOUNT ON; $1" | tr -d '\r' | sed '/^$/d'
 }
-rabbit_setup() {
-  [ -n "${RABBITMQ_MANAGEMENT_URL:-}" ] || return 0
-  rabbit -X PUT "$RABBITMQ_MANAGEMENT_URL/api/exchanges/%2F/bjk.users" -d '{"type":"fanout","durable":true}' > /dev/null
-  rabbit -X PUT "$RABBITMQ_MANAGEMENT_URL/api/queues/%2F/$EVENTS_QUEUE" -d '{"durable":true}' > /dev/null
-  rabbit -X POST "$RABBITMQ_MANAGEMENT_URL/api/bindings/%2F/e/bjk.users/q/$EVENTS_QUEUE" -d '{}' > /dev/null
-  echo "ok  RabbitMQ test queue bound to bjk.users"
+# as_messaging_login QUERY  - runs a query as the identity server's messaging login; fails if SQL Server refuses
+as_messaging_login() {
+  docker exec "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U "$MESSAGING_LOGIN" -P "$MESSAGING_PASSWORD" -C -b \
+    -d badjockeys -h -1 -W -Q "SET NOCOUNT ON; $1" 2>&1 | tr -d '\r' | sed '/^$/d'
 }
-# expect_events COUNT LABEL  - waits until the test queue holds COUNT messages, then lists their types
+messaging_setup() {
+  core_sql "IF DB_ID('badjockeys') IS NULL CREATE DATABASE badjockeys;" master > /dev/null
+  core_sql "IF SCHEMA_ID('messaging') IS NULL EXEC('CREATE SCHEMA messaging');
+    IF SCHEMA_ID('profiles') IS NULL EXEC('CREATE SCHEMA profiles');
+    IF OBJECT_ID('profiles.Profiles') IS NULL CREATE TABLE profiles.Profiles (Id uniqueidentifier PRIMARY KEY, Handle nvarchar(30));
+    IF OBJECT_ID('$EVENTS_TABLE') IS NULL CREATE TABLE $EVENTS_TABLE (
+      [id] bigint IDENTITY(1,1) NOT NULL, [priority] int NOT NULL, [expiration] datetimeoffset NOT NULL,
+      [visible] datetimeoffset NOT NULL, [headers] varbinary(max) NOT NULL, [body] varbinary(max) NOT NULL,
+      [leaseduntil] datetimeoffset NULL, [leasedby] nvarchar(200) NULL, [leasedat] datetimeoffset NULL,
+      [deliverycount] int NOT NULL DEFAULT 0,
+      CONSTRAINT [PK_messaging_bjk-core.user-events] PRIMARY KEY CLUSTERED ([priority], [id]));
+    IF OBJECT_ID('messaging.subscriptions') IS NULL CREATE TABLE messaging.subscriptions (
+      [topic] nvarchar(200) NOT NULL, [address] nvarchar(200) NOT NULL,
+      CONSTRAINT [PK_messaging_subscriptions] PRIMARY KEY CLUSTERED ([topic], [address]));" > /dev/null
+  # The identity server's login: read the subscriptions, add queue rows, nothing else (see the bjk-modules README).
+  core_sql "IF SUSER_ID('$MESSAGING_LOGIN') IS NULL CREATE LOGIN [$MESSAGING_LOGIN] WITH PASSWORD = '$MESSAGING_PASSWORD';" master > /dev/null
+  core_sql "IF USER_ID('$MESSAGING_LOGIN') IS NULL CREATE USER [$MESSAGING_LOGIN] FOR LOGIN [$MESSAGING_LOGIN];
+    GRANT SELECT ON OBJECT::[messaging].[subscriptions] TO [$MESSAGING_LOGIN];
+    GRANT INSERT ON SCHEMA::[messaging] TO [$MESSAGING_LOGIN];" > /dev/null
+  echo "ok  bjk-core's queue table and the identity server's messaging login exist"
+}
+core_subscribes() {
+  core_sql "INSERT INTO messaging.subscriptions (topic, address) VALUES ('bjk.users', '$EVENTS_TABLE');" > /dev/null
+  echo "ok  bjk-core subscribes its queue to bjk.users"
+}
+# expect_events COUNT LABEL  - waits until bjk-core's queue table holds COUNT events, then lists their types
 expect_events() {
-  [ -n "${RABBITMQ_MANAGEMENT_URL:-}" ] || { echo "--  skipped (no RABBITMQ_MANAGEMENT_URL): $2"; return 0; }
   local expected=$1 label=$2 actual=""
   for _ in $(seq 1 30); do
-    actual=$(rabbit "$RABBITMQ_MANAGEMENT_URL/api/queues/%2F/$EVENTS_QUEUE" | jq -r '.messages // 0')
+    actual=$(core_sql "SELECT COUNT(*) FROM $EVENTS_TABLE" | head -1)
     [ "$actual" = "$expected" ] && break
     sleep 2
   done
-  [ "$actual" = "$expected" ] || fail "$label: expected $expected messages on $EVENTS_QUEUE, got $actual"
-  EVENT_TYPES=$(rabbit -X POST "$RABBITMQ_MANAGEMENT_URL/api/queues/%2F/$EVENTS_QUEUE/get" \
-    -d "{\"count\":$expected,\"ackmode\":\"ack_requeue_true\",\"encoding\":\"auto\"}" | jq -r '[.[].payload | fromjson | .type] | join(",")')
+  [ "$actual" = "$expected" ] || fail "$label: expected $expected events in $EVENTS_TABLE, got $actual"
+  EVENT_TYPES=$(core_sql "SELECT STRING_AGG(JSON_VALUE(CAST([body] AS varchar(max)), '\$.type'), ',') WITHIN GROUP (ORDER BY [id]) FROM $EVENTS_TABLE" | head -1)
   echo "ok  $label ($EVENT_TYPES)"
   PASSED+=("$label ($EVENT_TYPES)")
 }
@@ -181,7 +207,7 @@ expect_sql() {
 
 # ---------- first start: creates the database ----------
 
-rabbit_setup
+messaging_setup
 start_app
 grep -q "applying migrations" "$APP_LOG" || fail "Expected the first start to apply migrations."
 expect_sql "SELECT COUNT(*) FROM sys.schemas WHERE name IN ('auth', 'idsrv', 'users')" 3 "auth, idsrv and users schemas exist"
@@ -490,8 +516,21 @@ request GET "/api/admin/users?status=Deactivated" "" "$ADMIN"
 [ "$(json .totalCount)" = "1" ] || fail "Expected 1 deactivated user, got: $RESPONSE"
 echo "ok  admin lists deactivated accounts"
 
-wait_for_sql "SELECT COUNT(*) FROM users.Outbox WHERE PublishedAt IS NULL" 0 "every event is published to RabbitMQ"
-expect_events 3 "events on the bjk.users exchange"
+# bjk-core hasn't subscribed yet, so the events wait in the outbox instead of being lost.
+sleep 3
+expect_sql "SELECT COUNT(*) FROM users.Outbox WHERE PublishedAt IS NULL" 3 "events wait in the outbox until bjk-core subscribes"
+core_subscribes
+wait_for_sql "SELECT COUNT(*) FROM users.Outbox WHERE PublishedAt IS NULL" 0 "every event is published to bjk-core's queue"
+expect_events 3 "events in bjk-core's user events queue"
+EVENT_ROW=$(core_sql "SELECT TOP 1 CONCAT(JSON_VALUE(CAST([body] AS varchar(max)), '\$.userId'), '|', [deliverycount], '|', CASE WHEN [leaseduntil] IS NULL AND [visible] <= SYSDATETIMEOFFSET() THEN 'ready' ELSE 'hidden' END) FROM $EVENTS_TABLE ORDER BY [id]" | head -1)
+[ "${EVENT_ROW,,}" = "${USER2_ID,,}|0|ready" ] || fail "Expected the first event to be for user 2, unclaimed and ready for bjk-core: $EVENT_ROW"
+echo "ok  events are ready for bjk-core to read (user id, unclaimed, visible)"
+PASSED+=("events are ready for bjk-core to read")
+if as_messaging_login "SELECT COUNT(*) FROM $EVENTS_TABLE" > /dev/null; then fail "The messaging login could read the queue."; fi
+if as_messaging_login "SELECT COUNT(*) FROM profiles.Profiles" > /dev/null; then fail "The messaging login could read bjk-core's data."; fi
+if as_messaging_login "DELETE FROM $EVENTS_TABLE" > /dev/null; then fail "The messaging login could delete queue rows."; fi
+echo "ok  the messaging login can't read or delete queue rows or read bjk-core's data"
+PASSED+=("messaging login limited to adding queue rows")
 expect_sql "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM idsrv.Keys" yes "signing key stored in SQL"
 
 # ---------- restart: migrations keep data; retention deletes expired accounts ----------
@@ -507,7 +546,7 @@ expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL2'" 0 "an
 expect_sql "SELECT COUNT(*) FROM users.Accounts" 1 "user 1's account survives the restart"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 1 "user 1's sign-in account survives the restart"
 wait_for_sql "SELECT COUNT(*) FROM users.Outbox WHERE PublishedAt IS NULL" 0 "the deletion event is published"
-expect_events 4 "Deleted event on the bjk.users exchange"
+expect_events 4 "Deleted event in bjk-core's user events queue"
 user_token "$EMAIL1" "$NEW_PASSWORD"
 expect 200 "user 1 still signs in after restart"
 request POST /api/users/reactivate "$(body --arg e "$EMAIL2" --arg p "$PASSWORD" '{email: $e, password: $p}')"
@@ -600,6 +639,7 @@ check_refuses_to_start() {
   echo "ok  $label"; PASSED+=("$label")
 }
 check_refuses_to_start "won't start with SendGrid but no API key" "Email:SendGrid:ApiKey is required" Email__Provider=SendGrid
+check_refuses_to_start "won't start without bjk-core's messaging connection" "Messaging:ConnectionStringName must name" Messaging__ConnectionStringName=
 # The Development age check providers don't check anyone's age, so only Development may use them.
 check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production

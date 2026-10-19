@@ -17,20 +17,23 @@ concurrency:
 env:
   # Credentials for the "badjockeys" source in nuget.config.
   NuGetPackageSourceCredentials_badjockeys: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }}
-  # Throwaway password for the CI-only SQL Server container below.
+  # Throwaway passwords for the CI-only SQL Server container below.
   SQL_PASSWORD: Ci-Passw0rd-2026
   ConnectionStrings__IdentityDatabase: Server=localhost,1433;Database=idsrv;User Id=sa;Password=Ci-Passw0rd-2026;TrustServerCertificate=True
+  # User lifecycle events go into bjk-core's queue tables (schema messaging of badjockeys), through a login that may
+  # only read the subscriptions and add queue rows. The smoke test creates the tables and the login as bjk-core would.
+  MESSAGING_LOGIN: bjk_idsrv_messaging
+  MESSAGING_PASSWORD: Ci-Messag1ng-2026
+  ConnectionStrings__Messaging: Server=localhost,1433;Database=badjockeys;User Id=bjk_idsrv_messaging;Password=Ci-Messag1ng-2026;TrustServerCertificate=True
+  Messaging__ConnectionStringName: Messaging
+  Messaging__CreateTables: "false"
   # Same settings developers keep in user secrets (see user-secrets.template.json).
   Email__FromAddress: no-reply@badjockeys.local
   Email__PasswordResetUrl: http://localhost:3000/reset-password
   Captcha__TurnstileSecretKey: 1x0000000000000000000000000000000AA   # Cloudflare's public "always passes" test key
-  Messaging__ConnectionUri: amqp://bjk:ci-rabbit-2026@localhost:5672
   # The public website client, so the smoke test can start a real sign-in.
   Clients__Web__RedirectUris__0: http://localhost:3000/api/auth/callback/bjk
   Clients__Web__Secret: ci-web-secret
-  RABBITMQ_MANAGEMENT_URL: http://localhost:15672
-  RABBITMQ_USER: bjk
-  RABBITMQ_PASSWORD: ci-rabbit-2026
 
 jobs:
   build:
@@ -47,17 +50,6 @@ jobs:
         options: >-
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Ci-Passw0rd-2026 -C -Q 'SELECT 1'"
           --health-interval 10s --health-timeout 5s --health-retries 12
-      rabbitmq:
-        image: rabbitmq:4-management
-        env:
-          RABBITMQ_DEFAULT_USER: bjk
-          RABBITMQ_DEFAULT_PASS: ci-rabbit-2026
-        ports:
-          - 5672:5672
-          - 15672:15672
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s --health-timeout 10s --health-retries 12
 
     steps:
       - uses: actions/checkout@v5
