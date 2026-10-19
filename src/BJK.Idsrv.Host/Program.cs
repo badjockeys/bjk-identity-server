@@ -5,6 +5,7 @@ using BJK.Idsrv.Host.Services.AgeAssurance;
 using BJK.Idsrv.Host.Services.Captcha;
 using BJK.Idsrv.Host.Services.Security;
 using BJK.Idsrv.Host.Services.SignUp;
+using BJK.Idsrv.Host.Services.Support;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Data;
@@ -133,6 +134,8 @@ builder.Services.AddSignUpCountryCheck(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<LoginFlow>();
+// Where people ask for help (Support:Email), e.g. the "Contact support" link after a failed age check.
+builder.Services.AddSupport(builder.Configuration);
 // The open-source YuNet liveness checker (AgeAssurance:Liveness:Provider=YuNet), used inside the on-demand age check
 // against spoofing; the User module adds the rest and refuses Development providers outside Development.
 builder.Services.AddYuNetLiveness(builder.Configuration);

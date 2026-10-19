@@ -735,6 +735,31 @@ expect 200 "user 3 can still sign in"
 echo "ok  an under-18 account gets no age_verified claim"
 PASSED+=("under 18: no age_verified")
 expect_sql "SELECT CONCAT(AgeCheckStatus, '/', AgeCheckMethod, '/', AgeCheckAttempts) FROM users.Accounts WHERE Id = '$USER3_ID'" "Failed/Document/2" "user 3 is recorded as under 18, by photo ID, after 2 tries"
+
+# The failed check offers "Contact support" with the attempt's reference, which is stored with the outcome.
+REFERENCE=$(sql "SELECT AgeCheckReference FROM users.Accounts WHERE Id = '$USER3_ID'" | head -1)
+[[ "$REFERENCE" =~ ^AGE-[A-HJ-KM-NP-Z2-9]{6}$ ]] || fail "Expected a stored reference like AGE-XXXXXX, got '$REFERENCE'"
+echo "ok  the age check reference is stored with the outcome ($REFERENCE)"
+PASSED+=("age check reference stored ($REFERENCE)")
+grep -q "Age check $REFERENCE for account $USER3_ID: photo ID Underage" "$APP_LOG" || fail "Expected the reference in the log line recording the outcome."
+rm -f cookies.txt
+curl -s -c cookies.txt -b cookies.txt "$BASE_URL/Account/Login" -o login.html
+XSRF=$(grep -o 'name="__RequestVerificationToken" type="hidden" value="[^"]*"' login.html | head -1 | sed 's/.*value="//; s/"$//')
+[ -n "$XSRF" ] || fail "No antiforgery token on the sign-in page."
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -c cookies.txt -b cookies.txt -X POST "$BASE_URL/Account/Login" \
+  --data-urlencode "__RequestVerificationToken=$XSRF" --data-urlencode "Input.Email=$EMAIL3" --data-urlencode "Input.Password=$PASSWORD")
+[[ "$STATUS" =~ ^30[237]$ ]] || fail "User 3 couldn't sign in on the sign-in page: $STATUS"
+STATUS=$(curl -s -o check-age.html -w '%{http_code}' -c cookies.txt -b cookies.txt "$BASE_URL/Account/CheckAge?returnUrl=%2FManage")
+[ "$STATUS" = "200" ] || fail "The age check page didn't load for user 3: $STATUS"
+grep -q "Verify your age to view sensitive posts" check-age.html || fail "The age check page doesn't look right."
+grep -q "$REFERENCE" check-age.html || fail "The failed age check page doesn't show the reference $REFERENCE."
+SUPPORT_LINK=$(grep -o 'id="age-contact-support" href="[^"]*"' check-age.html | head -1)
+grep -q 'mailto:support@badjockeys.com' <<< "$SUPPORT_LINK" && grep -q "Age%20check%20help%20%E2%80%93%20$REFERENCE" <<< "$SUPPORT_LINK" \
+  || fail "The failed age check page has no prefilled Contact support link: $SUPPORT_LINK"
+grep -q "young.rider%40example.com" <<< "$SUPPORT_LINK" || fail "The support email body doesn't name the account email."
+grep -q "A person will look at your age check" check-age.html || fail "The support wording is missing."
+echo "ok  the failed age check page offers Contact support with the reference"
+PASSED+=("failed age check: Contact support link with reference")
 stop_app
 
 # ---------- CAPTCHA rejected by Cloudflare ----------

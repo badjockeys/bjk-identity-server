@@ -1,10 +1,13 @@
+using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
+using BJK.Idsrv.Host.Services.Support;
 using BJK.Modules.User;
 using BJK.Modules.User.API.Controllers;
 using BJK.Modules.User.Domain;
 using BJK.Modules.User.UseCases.AgeChecks;
 using BJK.Modules.User.UseCases.SignUp;
 using MediatR;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
@@ -23,7 +26,13 @@ namespace BJK.Idsrv.Host.Pages.Account;
 /// </summary>
 [RequestSizeLimit(AgeCheckUploads.MaxRequestBytes)]
 [RequestFormLimits(MultipartBodyLengthLimit = AgeCheckUploads.MaxRequestBytes, MemoryBufferThreshold = AgeCheckUploads.MaxRequestBytes)]
-public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAssuranceOptions> options) : PageModel
+public sealed class CheckAgeModel(
+    ISender sender,
+    LoginFlow flow,
+    IOptions<AgeAssuranceOptions> options,
+    IOptions<SupportOptions> support,
+    UserManager<BjkIdentityUser> users)
+    : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public string? ReturnUrl { get; set; }
@@ -43,6 +52,22 @@ public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAs
 
     public int ChallengeAge => options.Value.ChallengeAge;
 
+    /// <summary>The support address (<c>Support:Email</c>).</summary>
+    public string SupportEmail => support.Value.Email;
+
+    /// <summary>
+    /// "Contact support" mailto link, when the check failed, couldn't verify the user, or they're out of tries.
+    /// Null otherwise.
+    /// </summary>
+    public string? SupportUrl { get; private set; }
+
+    private async Task SetSupportAsync()
+    {
+        SupportUrl = Check is { NeedsSupport: true, Reference: { } reference }
+            ? SupportLink.ForAgeCheck(SupportEmail, reference, (await users.GetUserAsync(User))?.Email)
+            : null;
+    }
+
     public async Task<IActionResult> OnGetAsync()
     {
         // Older accounts give their date of birth first: it decides whether the check is offered at all.
@@ -52,6 +77,7 @@ public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAs
         }
 
         Check = await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted);
+        await SetSupportAsync();
         return Page();
     }
 
@@ -70,11 +96,20 @@ public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAs
                 canUseFaceCheck = check.CanUseFaceCheck,
                 canUseDocumentCheck = check.CanUseDocumentCheck,
                 attemptsLeft = check.AttemptsLeft,
+
+                // The page reloads to show "Contact support" with the reference.
+                needsSupport = check.NeedsSupport,
             });
         }
         catch (ValidationException ex)
         {
-            return new JsonResult(new { message = string.Join(" ", ex.Errors.Select(e => e.ErrorMessage)) })
+            // E.g. out of tries for today: the page reloads to offer "Contact support" if that applies now.
+            var current = await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted);
+            return new JsonResult(new
+            {
+                message = string.Join(" ", ex.Errors.Select(e => e.ErrorMessage)),
+                needsSupport = current.NeedsSupport,
+            })
             {
                 StatusCode = StatusCodes.Status400BadRequest,
             };
@@ -96,6 +131,7 @@ public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAs
             Check = await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted);
         }
 
+        await SetSupportAsync();
         return Page();
     }
 }
