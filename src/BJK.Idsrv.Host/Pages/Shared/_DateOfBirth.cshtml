@@ -1,0 +1,33 @@
+@model BJK.Idsrv.Host.Services.SignUp.DateOfBirthInput
+@*
+    Date of birth as three labelled boxes in a fieldset (GOV.UK date input pattern). Use with
+    <partial name="_DateOfBirth" for="Input.DateOfBirth" /> so the boxes post as Input.DateOfBirth.Day and so on.
+*@
+@{
+    var prefix = ViewData.TemplateInfo.HtmlFieldPrefix;
+    var id = string.IsNullOrEmpty(prefix) ? "dob" : prefix.Replace('.', '_');
+    var errors = ViewData.ModelState.TryGetValue(prefix, out var entry) ? entry.Errors.Select(e => e.ErrorMessage).ToList() : new List<string>();
+    var describedBy = errors.Count > 0 ? $"{id}-hint {id}-error" : $"{id}-hint";
+}
+<fieldset class="dob" role="group" aria-describedby="@describedBy">
+    <legend>Date of birth</legend>
+    <p class="hint" id="@id-hint">For example, 27 3 2010. You need to be 13 or over to join.</p>
+    @if (errors.Count > 0)
+    {
+        <p class="field-validation-error" id="@id-error" role="alert">@string.Join(" ", errors)</p>
+    }
+    <div class="dob-boxes">
+        <div>
+            <label asp-for="Day">Day</label>
+            <input asp-for="Day" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-day" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+        </div>
+        <div>
+            <label asp-for="Month">Month</label>
+            <input asp-for="Month" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-month" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+        </div>
+        <div>
+            <label asp-for="Year">Year</label>
+            <input asp-for="Year" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="bday-year" class="dob-4" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+        </div>
+    </div>
+</fieldset>

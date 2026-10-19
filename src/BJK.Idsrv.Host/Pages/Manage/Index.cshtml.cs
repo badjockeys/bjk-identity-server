@@ -23,6 +23,9 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
 
     public AgeCheckStatus AgeCheckStatus { get; private set; }
 
+    /// <summary>True if the declared date of birth says the user is under 18: the age check isn't offered.</summary>
+    public bool UnderAgeByDateOfBirth { get; private set; }
+
     public async Task<IActionResult> OnGetAsync()
     {
         var user = await users.GetUserAsync(User);
@@ -38,7 +41,9 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
         Roles = await users.GetRolesAsync(user);
         try
         {
-            AgeCheckStatus = (await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted)).Status;
+            var check = await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted);
+            AgeCheckStatus = check.Status;
+            UnderAgeByDateOfBirth = check.UnderAgeByDateOfBirth;
         }
         catch (BJK.Modules.Shared.Exceptions.NotFoundException)
         {

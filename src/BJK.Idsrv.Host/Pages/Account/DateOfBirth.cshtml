@@ -1,0 +1,14 @@
+@page
+@model DateOfBirthModel
+@{
+    ViewData["Title"] = "Your date of birth";
+}
+<h1>Your date of birth</h1>
+<p class="lead">We now ask everyone for their date of birth, so we can keep younger members safe. You need to be 13 or over to use Bad Jockeys.</p>
+
+<form method="post">
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors"></div>
+    <input type="hidden" asp-for="ReturnUrl" />
+    <partial name="_DateOfBirth" for="DateOfBirth" />
+    <button type="submit">Continue</button>
+</form>
