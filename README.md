@@ -4,7 +4,6 @@ Identity server for the Bad Jockeys platform. It signs users in, issues tokens t
 
 ```
 .github/workflows/   CI (GitHub Actions only reads workflows from here)
-docker-compose.yml   local SQL Server (also holds bjk-core's database and its message queues)
 user-secrets.template.json   the settings each developer loads into user secrets
 docs/                local-development.md: run it on your machine
 pipelines/           scripts the workflows call (end-to-end smoke test)
@@ -89,10 +88,10 @@ The managed identity is created as a database user (`CREATE USER [<app name>] FR
 
 ## Local development
 
+Local SQL Server runs in Docker from **bjk-core** (`docker-compose.yml`, Docker group `bad-jockeys`, password in `bjk-core/.env`), alongside the file storage. The quickest start is bjk-core's one-command setup (`setup.sh` on a Mac, `setup.ps1` on Windows), then F5 in the `badjockeys.code-workspace`. To run just this server:
+
 ```bash
-cp .env.example .env                                              # first time: choose a SQL password,
-                                                                  # then load user-secrets.template.json (see docs)
-docker compose up -d                                              # SQL Server in Docker
+(cd ../bjk-core && docker compose up -d --wait)                   # SQL Server (and S3Mock) in Docker
 dotnet run --project src/BJK.Idsrv.Host --launch-profile https    # https://localhost:5001
 ```
 
