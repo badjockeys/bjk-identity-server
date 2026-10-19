@@ -1,6 +1,6 @@
 # Running the identity server locally
 
-This runs the identity server on your machine against SQL Server and RabbitMQ in Docker. You can register users, deactivate and reactivate them, and see the rows in the database and the events in RabbitMQ. It works the same on macOS (including Apple Silicon), Windows and Linux.
+This runs the identity server on your machine against SQL Server in Docker. You can register users, deactivate and reactivate them, and see the rows in the database and the events in bjk-core's queue table. It works the same on macOS (including Apple Silicon), Windows and Linux.
 
 ## 1. Prerequisites
 
@@ -31,28 +31,27 @@ The User module comes from the private `badjockeys` package feed on GitHub Packa
 
    Editors only see the variable if started from a terminal that has it, or after you log out and back in. On macOS, `open -a Rider` from that terminal is the simplest way.
 
-## 3. Start SQL Server and RabbitMQ
+## 3. Start SQL Server
 
-Choose passwords for the local SQL Server's `sa` account and for RabbitMQ. They go in a `.env` file at the repo root. The file is git-ignored, so it never reaches GitHub:
+Choose a password for the local SQL Server's `sa` account. It goes in a `.env` file at the repo root. The file is git-ignored, so it never reaches GitHub:
 
 ```bash
 cp .env.example .env
 # edit .env: BJK_SQL_PASSWORD=<8+ characters with upper case, lower case, a digit and a symbol>
-#            BJK_RABBITMQ_PASSWORD=<any password>
 ```
 
-Then start them:
+Then start it:
 
 ```bash
 docker compose up -d
-docker compose ps        # wait until both services show "healthy" (about 30 seconds)
+docker compose ps        # wait until it shows "healthy" (about 30 seconds)
 ```
 
-This runs SQL Server 2022 on `localhost,1433` and RabbitMQ on `localhost:5672`. bjk-core uses the same two containers. The RabbitMQ dashboard is at http://localhost:15672 (user `bjk`, your `.env` password). The data lives in Docker volumes, so it's still there after `docker compose stop` or a reboot.
+This runs SQL Server 2022 on `localhost,1433`. bjk-core uses the same container: its `badjockeys` database also holds the message queues (schema `messaging`), so there's no separate message broker. The data lives in a Docker volume, so it's still there after `docker compose stop` or a reboot.
 
 | Command | Does |
 |---|---|
-| `docker compose stop` | Stops both and keeps the data |
+| `docker compose stop` | Stops it and keeps the data |
 | `docker compose up -d` | Starts them again |
 | `docker compose down -v` | Removes the containers **and the data**, so the next app start builds a fresh database |
 
@@ -76,7 +75,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
 | `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
-| `Messaging:ConnectionUri` | The Docker RabbitMQ, with your password from `.env` |
+| `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName`, `Messaging:CreateTables` | bjk-core's `badjockeys` database in the same Docker SQL Server, where user lifecycle events are queued for bjk-core. Locally `sa`; in Azure a login that may only add rows to the queue tables (see the bjk-modules README, "Messaging"). |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
 | `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
@@ -280,13 +279,18 @@ Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to 
 | List (admin token) | All accounts, optionally by status | |
 | Forgot password | Reset email written to the app console (not sent yet) | |
 | Confirm reset | Password changed | `auth.AspNetUsers.PasswordHash` |
-| Deactivate | Sign-in locked, refresh tokens revoked, deletion due in 90 days, event published | `users.Accounts.Status`, `DeletionDueAt`; `users.Outbox`; RabbitMQ `bjk.users` exchange |
+| Deactivate | Sign-in locked, refresh tokens revoked, deletion due in 90 days, event published | `users.Accounts.Status`, `DeletionDueAt`; `users.Outbox`; `badjockeys`: `[messaging].[bjk-core.user-events]` |
 | Reactivate | Sign-in works again, deletion cancelled | `users.Accounts` |
 | Admin delete | Sign-in account and account record deleted now; `Deleted` event published | |
 
 The display name and handle aren't here: they're in the user's profile in bjk-core.
 
-**Seeing the events.** The identity server publishes to the `bjk.users` exchange. With nothing bound to it, RabbitMQ drops the messages. To watch them, either run bjk-core, which creates its `bjk-core.user-events` queue, or bind a queue to the exchange in the dashboard (Queues, Add queue, then Bindings, from `bjk.users`).
+**Seeing the events.** The identity server publishes to the `bjk.users` topic: each event becomes a row in every queue table subscribed to it, which is bjk-core's `[messaging].[bjk-core.user-events]` in the `badjockeys` database. bjk-core creates that table and its subscription when it starts. Until then nothing is lost: the events wait in `users.Outbox` (`PublishedAt` empty, and the log says no queue subscribes yet). Run bjk-core once (see its docs/local-development.md), and the waiting events go out within a second or two. With bjk-core stopped, the rows stay in its queue table, where you can look at them:
+
+```sql
+USE badjockeys;
+SELECT id, visible, deliverycount, CAST(body AS varchar(max)) AS event FROM [messaging].[bjk-core.user-events];
+```
 
 **Trying the 90-day deletion without waiting.** Deactivate an account, then set its deadline in the past and restart the app (the retention job runs at startup and then hourly):
 
@@ -374,7 +378,8 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <Name> --project src
 
 ## Troubleshooting
 
-- **`The ConnectionUri field is required`** (Messaging): add `Messaging:ConnectionUri` to your user secrets (step 4). **`None of the specified endpoints were reachable`**: RabbitMQ isn't running (`docker compose ps`), or the password doesn't match `.env`.
+- **`Messaging:ConnectionStringName must name the connection string for bjk-core's app database`**: add `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` and `Messaging:CreateTables` from the template to your user secrets (step 4).
+- **`No queue subscribes to 'bjk.users' yet`** in the log: bjk-core hasn't started against this SQL Server yet. Events wait in `users.Outbox` until it has.
 - **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d` to start from an empty database.
 - **`NU1301` / `401 Unauthorized` on restore**: the NuGet token variable isn't set in this terminal, or has expired (step 2). Check with `echo $NuGetPackageSourceCredentials_badjockeys`.
 - **`Connection string 'IdentityDatabase' is not configured`** or **`Captcha:TurnstileSecretKey is required`**: your user secrets aren't loaded (step 4), or the app isn't running in Development. The `https` launch profile sets Development.

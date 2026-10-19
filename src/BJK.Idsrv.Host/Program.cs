@@ -27,6 +27,18 @@ var connectionString = builder.Configuration.GetConnectionString(ConnectionStrin
         + "(see docs/local-development.md); in Azure it comes from the App Service settings.");
 var hostAssembly = typeof(Program).Assembly.GetName().Name;
 
+// User lifecycle events are queued in bjk-core's database (its messaging schema), through a connection of their own.
+var messagingConnectionName = builder.Configuration["Messaging:ConnectionStringName"];
+if (string.IsNullOrWhiteSpace(messagingConnectionName)
+    || string.Equals(messagingConnectionName, ConnectionStringName, StringComparison.OrdinalIgnoreCase)
+    || string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(messagingConnectionName)))
+{
+    throw new InvalidOperationException(
+        "Messaging:ConnectionStringName must name the connection string for bjk-core's app database (normally "
+        + "'Messaging', with ConnectionStrings:Messaging set), where user lifecycle events are queued for bjk-core. "
+        + "Locally, set both with dotnet user-secrets (see docs/local-development.md).");
+}
+
 // --- Sign-in accounts: ASP.NET Core Identity (schema "auth") ---
 builder.Services.AddDbContext<BjkIdentityDbContext>(options => options.UseSqlServer(
     connectionString,
