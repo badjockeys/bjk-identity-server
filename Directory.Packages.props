@@ -16,9 +16,11 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.13" />
-    <!-- Data Protection keys wrapped with an Azure Key Vault key in deployed environments (managed identity:
-         DefaultAzureCredential, which ships in Azure.Core since 1.55, so no separate Azure.Identity package). -->
+    <!-- Data Protection keys wrapped with an Azure Key Vault key in deployed environments (managed identity).
+         Azure.Identity is already a dependency of Microsoft.Data.SqlClient (same version); it's referenced under an
+         alias because Azure.Core 1.55 also contains a DefaultAzureCredential type. -->
     <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.3" />
+    <PackageVersion Include="Azure.Identity" Version="1.17.1" />
 
     <!-- Social sign-in. Each provider is only switched on when its keys are configured. -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.13" />

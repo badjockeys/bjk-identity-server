@@ -1,4 +1,5 @@
-using Azure.Identity;
+extern alias AzureIdentity;
+
 using BJK.Idsrv.Host.Data;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
@@ -75,7 +76,9 @@ internal static class DataProtectionSetup
 
         if (settings.KeyVaultKeyUri is { } keyUri)
         {
-            var credential = new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            // Azure.Identity's credential (the managed identity in Azure), named explicitly: Azure.Core 1.55 has a
+            // type with the same name.
+            var credential = new AzureIdentity::Azure.Identity.DefaultAzureCredential(new AzureIdentity::Azure.Identity.DefaultAzureCredentialOptions
             {
                 ManagedIdentityClientId = string.IsNullOrWhiteSpace(settings.ManagedIdentityClientId) ? null : settings.ManagedIdentityClientId,
             });
