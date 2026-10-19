@@ -3,7 +3,8 @@
 # User module through its HTTP API and the token endpoint, checks the rows in the database and the events
 # published to RabbitMQ, then restarts the app to prove startup migrations keep existing data and the
 # retention job deletes accounts whose grace period has ended. The age check runs with the Development providers:
-# an estimate of 30 passes; on the restart, estimates of 15 (and an ID saying 16) fail.
+# an estimate of 30 passes; on the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts
+# Cloudflare's CF-IPCountry header: sign-up from GB works, from FR or with no header it's refused.
 #
 # Expects the app to be built (Release) and these environment variables:
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
@@ -72,6 +73,7 @@ request() {
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
   if [ -n "$token" ]; then args+=(-H "Authorization: Bearer $token"); fi
   if [ -n "$CAPTCHA" ]; then args+=(-H "X-Captcha-Token: $CAPTCHA"); fi
+  if [ -n "${COUNTRY:-}" ]; then args+=(-H "CF-IPCountry: $COUNTRY"); fi
   STATUS=$(curl "${args[@]}")
   RESPONSE=$(cat response.json)
 }
@@ -512,12 +514,44 @@ request POST /api/users/reactivate "$(body --arg e "$EMAIL2" --arg p "$PASSWORD"
 expect 400 "a deleted account can't be reactivated"
 stop_app
 
-# ---------- age check: under 18 ----------
+# ---------- sign-up is UK-only; age check: under 18 ----------
 
-# Restarted with Development providers that see someone under 18: an estimate of 15 and an ID saying 16.
-start_app AgeAssurance__Estimator__Development__Age=15 AgeAssurance__Document__Development__Age=16
+# Restarted as if behind Cloudflare (the CF-IPCountry header is trusted), with Development age check providers
+# that see someone under 18: an estimate of 15 and an ID saying 16.
+start_app SignUp__TrustCloudflareCountryHeader=true AgeAssurance__Estimator__Development__Age=15 AgeAssurance__Document__Development__Age=16
+
+COUNTRY=""
 request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
-expect 201 "register user 3"
+expect 403 "sign-up without a country header is refused"
+COUNTRY=FR
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 403 "sign-up from France is refused"
+grep -q "only open for new accounts in the UK" <<< "$(json .detail)" || fail "Expected the UK-only message: $RESPONSE"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL3'" 0 "refused sign-ups create no account"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt -H "CF-IPCountry: FR" "$BASE_URL/Account/Register")
+LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r' || true)
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/SignUpUnavailable" <<< "$LOCATION" || fail "Expected the sign-up page to send France to SignUpUnavailable, got $STATUS $LOCATION"
+echo "ok  the sign-up page sends visitors from outside the UK to the friendly page"
+PASSED+=("sign-up page refuses FR (302)")
+request GET /Account/SignUpUnavailable
+expect 200 "the sign-up unavailable page"
+grep -q "You can still watch posts" response.json || fail "The sign-up unavailable page doesn't look right."
+STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/token" -H "CF-IPCountry: FR" \
+  -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
+  --data-urlencode "scope=openid bjk.users" \
+  --data-urlencode "username=$EMAIL1" --data-urlencode "password=$NEW_PASSWORD")
+RESPONSE=$(cat response.json)
+expect 200 "an existing account signs in from France"
+grep -q "Sign-up country check: FR refused" "$APP_LOG" || fail "Expected the refusal to be logged with the country code."
+grep -q "Sign-up country check: none refused" "$APP_LOG" || fail "Expected the missing header to be logged."
+if grep "Sign-up country check" "$APP_LOG" | grep -qE "127\.0\.0\.1|::1"; then fail "The country check logged an IP address."; fi
+echo "ok  the country check logs only the country and outcome"
+PASSED+=("country check logs country and outcome, no IP")
+
+COUNTRY=GB
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 201 "register user 3 from the UK"
+COUNTRY=""
 USER3_ID=$(json .id)
 user_token "$EMAIL3" "$PASSWORD"
 expect 200 "user 3 signs in without an age check"
@@ -568,6 +602,7 @@ check_refuses_to_start() {
 check_refuses_to_start "won't start with SendGrid but no API key" "Email:SendGrid:ApiKey is required" Email__Provider=SendGrid
 # The Development age check providers don't check anyone's age, so only Development may use them.
 check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
 
 # ---------- summary ----------

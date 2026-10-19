@@ -79,6 +79,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Messaging:ConnectionUri` | The Docker RabbitMQ, with your password from `.env` |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
+| `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
 | `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age check below) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
@@ -159,6 +160,31 @@ Each provider switches on when its keys are in your user secrets. Every provider
 | Apple | developer.apple.com → Certificates, IDs & Profiles: a Services ID (the client id), a Sign in with Apple key (.p8, key id) and your team id. Apple needs a real HTTPS domain, so try it on DEV rather than localhost. | `https://<domain>/signin-apple` |
 
 A first social sign-in creates an account with the provider's email (already confirmed). If an account with that email already exists, the two are never joined automatically; the person signs in with their password and links the provider on `/Manage`.
+
+### UK-only sign-up
+
+At launch, new accounts can only be created from the UK. Anyone can still watch posts, and existing accounts sign in from anywhere (people travel). The rule covers the sign-up page, a first Google, Apple or Facebook sign-in, and `POST /api/users`.
+
+In the deployed environments Cloudflare adds a `CF-IPCountry` header with the visitor's country, and `SignUp:TrustCloudflareCountryHeader` is `true`. A country outside `SignUp:AllowedCountries` (default `["GB"]`), Cloudflare's "unknown" (`XX`) or Tor (`T1`), or no header at all, means no account:
+- the pages show `/Account/SignUpUnavailable` ("Bad Jockeys is only open for new accounts in the UK for now. You can still watch posts.");
+- the API returns 403 with that message.
+
+The log records only the country code and the outcome, e.g. `Sign-up country check: FR refused`, never the IP address.
+
+Locally there's no Cloudflare, so the header isn't trusted and sign-up is allowed. To see the refusal, pretend to be elsewhere:
+
+```bash
+dotnet user-secrets set "SignUp:DevelopmentCountry" "FR" --project src/BJK.Idsrv.Host   # refused
+dotnet user-secrets remove "SignUp:DevelopmentCountry" --project src/BJK.Idsrv.Host      # allowed again
+```
+
+Or trust the header and send it yourself (e.g. `CF-IPCountry: FR` in the `.http` file):
+
+```bash
+dotnet user-secrets set "SignUp:TrustCloudflareCountryHeader" "true" --project src/BJK.Idsrv.Host
+```
+
+Outside Development the app refuses to start unless `SignUp:TrustCloudflareCountryHeader` is `true`. Without Cloudflare in front, anyone could fake the header. `SignUp:DevelopmentCountry` is refused there too.
 
 ### Age check
 

@@ -21,6 +21,9 @@ GET {{host}}/.well-known/openid-configuration
 POST {{host}}/api/users
 Content-Type: application/json
 X-Captcha-Token: {{captcha}}
+# Sign-up is UK-only. Cloudflare adds this header in the deployed environments; locally it's only used if
+# SignUp:TrustCloudflareCountryHeader is true. Try FR to see the 403.
+CF-IPCountry: GB
 
 {
   "email": "{{email}}",

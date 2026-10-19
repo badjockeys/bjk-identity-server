@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
+using BJK.Idsrv.Host.Services.SignUp;
 using BJK.Modules.User.UseCases.Add;
 using BJK.Modules.User.UseCases.Reactivate;
 using MediatR;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -20,6 +22,7 @@ public sealed class ExternalLoginModel(
     UserManager<BjkIdentityUser> users,
     ISender sender,
     LoginFlow flow,
+    SignUpCountryPolicy countries,
     ILogger<ExternalLoginModel> logger)
     : PageModel
 {
@@ -101,6 +104,14 @@ public sealed class ExternalLoginModel(
         {
             Outcome = Result.EmailInUse;
             return Page();
+        }
+
+        // A first social sign-in creates an account, and new accounts are UK-only for now. Existing accounts
+        // (handled above) sign in from anywhere.
+        if (!countries.Check(Request).Allowed)
+        {
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+            return RedirectToPage("./SignUpUnavailable");
         }
 
         var user = new BjkIdentityUser { UserName = Email, Email = Email, EmailConfirmed = true };

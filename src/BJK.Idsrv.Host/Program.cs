@@ -3,6 +3,7 @@ using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.AgeAssurance;
 using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Idsrv.Host.Services.SignUp;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Data;
@@ -111,6 +112,8 @@ builder.Services.AddAuthentication()
 builder.Services.AddScoped<IIdentityService, AspNetIdentityService>();
 builder.Services.Configure<EmailLinkOptions>(builder.Configuration.GetSection(EmailLinkOptions.SectionName));
 builder.Services.AddCaptcha(builder.Configuration);
+// New accounts are UK-only at launch (Cloudflare's CF-IPCountry header); viewing and signing in work anywhere.
+builder.Services.AddSignUpCountryCheck(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<LoginFlow>();
