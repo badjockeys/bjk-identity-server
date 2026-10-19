@@ -80,7 +80,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
 | `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
-| `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age check below) |
+| `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age policy below) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
@@ -132,12 +132,14 @@ These are the pages the web app, phone app and back-office send people to; none 
 
 | Page | |
 |---|---|
-| `/Account/Login`, `/Account/Register` | Sign in, sign up (plus social buttons once configured) |
+| `/Account/Login`, `/Account/Register` | Sign in, sign up with date of birth (plus social buttons once configured) |
+| `/Account/TooYoung` | Kind refusal for under-13s (no account created, date of birth not kept) |
+| `/Account/DateOfBirth` | Asks accounts created before dates of birth were asked for (they get no tokens until they give it) |
 | `/Account/LoginWith2fa`, `/Account/LoginWithRecoveryCode` | Second step: authenticator code, emailed code, or recovery code |
 | `/Account/ForgotPassword`, `/Account/ResetPassword` | Forgot password |
 | `/Account/ConfirmEmail` | Where the confirmation email's link lands |
 | `/Account/Reactivate` | Bring back a deactivated account |
-| `/Account/CheckAge` | Check your age: selfie video, or photo ID (shown straight after sign-up) |
+| `/Account/CheckAge?returnUrl=...` | Verify your age to view sensitive posts: selfie video, or photo ID. The web app sends signed-in users here when they tap a sensitive post |
 | `/Manage` | Account overview, two-step, password, social sign-in, deactivate |
 
 ### Staff roles
@@ -186,16 +188,22 @@ dotnet user-secrets set "SignUp:TrustCloudflareCountryHeader" "true" --project s
 
 Outside Development the app refuses to start unless `SignUp:TrustCloudflareCountryHeader` is `true`. Without Cloudflare in front, anyone could fake the header. `SignUp:DevelopmentCountry` is refused there too.
 
-### Age check
+### Age policy
 
-Bad Jockeys is for people aged 18 and over. Straight after sign-up (email or Google/Apple/Facebook), people land on **Check your age** (`/Account/CheckAge`):
+Decided 19 Oct 2026. **Minimum age 13.**
+
+**Sign-up** is the date of birth, the Turnstile CAPTCHA and email confirmation; there's no selfie. The sign-up page (and a first Google, Apple or Facebook sign-in) asks for the date of birth as three labelled boxes (day, month, year). Under 13 goes to a kind refusal page (`/Account/TooYoung`): no account is created and the date isn't kept. The API (`POST /api/users`) takes `dateOfBirth` and answers 400 with error code `too_young`. The date of birth is stored on `users.Accounts.DateOfBirth`, is in "Download my data" and is deleted with the account. Accounts created before this change are asked for it at their next sign-in and get no tokens until they give it.
+
+**Under-18s.** Tokens (access token, ID token, userinfo) carry `"minor": "true"` while the date of birth says the user is under 18. It's worked out every time a token is issued or refreshed (the app clients re-read claims on refresh), so it disappears on the 18th birthday. The apps use it for the high-privacy defaults of the ICO Children's Code.
+
+**Verify your age to view sensitive posts** (`/Account/CheckAge?returnUrl=...`). Sensitive posts appear blurred for everyone. When a signed-in user taps one, the web app sends them here, and back to `returnUrl` (a page of one of our apps) afterwards; the next token or refresh carries `age_verified`. If their date of birth says they're under 18, the page explains that sensitive posts are for adults and offers nothing to check. Otherwise:
 
 1. The page explains what's checked and kept, and asks for consent.
 2. It records a 4-second selfie video in the browser, prompting the person to look ahead, turn left, then turn right. No sound is recorded.
-3. It uploads the video.
+3. It uploads the video: a liveness check (against spoofing), then the face age estimate.
 4. "Use photo ID instead" uploads a photo of an ID.
 
-Anyone can **skip** it and still sign in. Their tokens just don't carry `age_verified` until they pass, and the web app prompts them. `/Manage` shows the status and links back to the page.
+Posting, commenting and reacting don't need it. `/Manage` shows the status and links to the page.
 
 The rules (from the User module):
 - Estimated **25 or over** passes.
@@ -230,6 +238,8 @@ UPDATE users.Accounts SET AgeCheckStatus = 'NotChecked', AgeCheckMethod = NULL, 
 
 Then sign in again (or use the `.http` file's steps). The access token, ID token and userinfo carry `"age_verified": "true"` once passed, and nothing before.
 
+To try the under-18 paths, register with a date of birth 15 years ago: the token carries `"minor": "true"` and the age check page explains it's for adults. A date of birth 12 years ago is refused.
+
 **Trying the real liveness check (YuNet).** It runs on our servers:
 1. ffmpeg samples frames from the video.
 2. OpenCV Zoo's YuNet face detector (MIT licence) runs through ONNX Runtime.
@@ -262,11 +272,11 @@ Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to 
 
 | Step | What happens | Where to look |
 |---|---|---|
-| Register | Sign-in account and account record created | `auth.AspNetUsers`, `users.Accounts` |
+| Register | Sign-in account and account record (with the date of birth) created; under 13 refused | `auth.AspNetUsers`, `users.Accounts.DateOfBirth` |
 | Sign in (password grant) | Token issued; signing key created on first use | `idsrv.Keys` |
 | My account | Email (from the sign-in account) and status | |
 | Download my data | JSON file of what the identity server holds about you | |
-| Age check | Status, then a selfie upload (any file works with the Development providers); the next token carries `age_verified` | `users.Accounts.AgeCheckStatus` |
+| Age check (sensitive posts) | Status, then a selfie upload (any file works with the Development providers); the next token carries `age_verified` | `users.Accounts.AgeCheckStatus` |
 | List (admin token) | All accounts, optionally by status | |
 | Forgot password | Reset email written to the app console (not sent yet) | |
 | Confirm reset | Password changed | `auth.AspNetUsers.PasswordHash` |
@@ -347,7 +357,7 @@ The real apps use these clients (authorization code + PKCE, refresh tokens), con
 | `bjk-mobile` | The phone apps, through the system browser | No secret (public client); `badjockeys://auth/callback` |
 | `bjk-backoffice` | Moderators and admins | Has a secret; adds the `.manage` scopes; non-staff are turned away at sign-in; 10-minute access tokens, 8-hour sessions |
 
-Access tokens for the core API have the audience `bjk-api` and carry `role`, `email_verified` and `email` (for report and appeal acknowledgements), plus `age_verified` (`"true"`) once the account has passed the age check.
+Access tokens for the core API have the audience `bjk-api` and carry `role`, `email_verified` and `email` (for report and appeal acknowledgements), plus `age_verified` (`"true"`) once the account has passed the age check and `minor` (`"true"`) while the date of birth says the user is under 18. Claims are re-read on every refresh. Accounts with no date of birth on record (only ones from before 19 Oct 2026) get no tokens until they give it.
 
 ## Database changes
 

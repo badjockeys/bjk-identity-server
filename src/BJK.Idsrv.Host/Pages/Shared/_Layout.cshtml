@@ -52,6 +52,15 @@
         dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
         dt { color: var(--muted); }
         dd { margin: 0; }
+        fieldset.dob { border: 0; padding: 0; margin: 14px 0 0; min-width: 0; }
+        fieldset.dob legend { font-weight: 600; padding: 0; }
+        .hint { color: var(--muted); font-size: 15px; margin: 2px 0 0; }
+        .dob-boxes { display: flex; gap: 12px; }
+        .dob-boxes label { font-weight: 400; margin: 8px 0 4px; }
+        .dob-boxes input { padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 16px; }
+        .dob-boxes input.dob-2 { width: 4.2em; }
+        .dob-boxes input.dob-4 { width: 6em; }
+        .dob-boxes input[aria-invalid=true] { border-color: var(--danger); }
         footer { text-align: center; color: var(--muted); font-size: 13px; padding-bottom: 24px; }
     </style>
     @await RenderSectionAsync("Head", required: false)

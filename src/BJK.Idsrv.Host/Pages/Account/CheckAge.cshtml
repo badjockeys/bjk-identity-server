@@ -2,7 +2,7 @@
 @model CheckAgeModel
 @using BJK.Modules.User.Domain
 @{
-    ViewData["Title"] = "Check your age";
+    ViewData["Title"] = "Verify your age to view sensitive posts";
     var check = Model.Check;
 }
 @section Head {
@@ -20,16 +20,22 @@
     </style>
 }
 
-<h1>Check your age</h1>
+<h1>Verify your age to view sensitive posts</h1>
 
 @if (check.Status == AgeCheckStatus.Passed)
 {
-    <p class="notice ok">@(check.Message ?? "You've confirmed you're 18 or over. Thanks!")</p>
+    <p class="notice ok" role="status">@(check.Message ?? "You've confirmed you're 18 or over, so you can view sensitive posts. Thanks!")</p>
     <a class="button" href="@Model.ContinueUrl">Continue</a>
+}
+else if (check.UnderAgeByDateOfBirth)
+{
+    <p class="lead">Some posts show graphic injuries or serious crashes. They're marked "Sensitive" and are only for adults.</p>
+    <p class="notice" role="status">@check.Message</p>
+    <a class="button" href="@Model.ContinueUrl">Back to Bad Jockeys</a>
 }
 else if (!check.CanUseFaceCheck && !check.CanUseDocumentCheck)
 {
-    <p class="lead">You must be 18 or over to post, comment or react on Bad Jockeys.</p>
+    <p class="lead">Sensitive posts are only for people aged 18 and over.</p>
     @if (Model.Error is not null)
     {
         <p class="notice error" role="alert">@Model.Error</p>
@@ -37,11 +43,11 @@ else if (!check.CanUseFaceCheck && !check.CanUseDocumentCheck)
     <p class="notice" role="status">@(check.Message ?? (check.AttemptsLeft == 0
         ? "You've used all your tries for today. Please come back tomorrow."
         : "We can't check your age again. If you think we've got this wrong, please contact support."))</p>
-    <a class="button secondary" href="@Model.ContinueUrl">Continue to Bad Jockeys</a>
+    <a class="button secondary" href="@Model.ContinueUrl">Back to Bad Jockeys</a>
 }
 else if (Model.ShowDocument)
 {
-    <p class="lead">Use a photo of your passport, driving licence or other government photo ID to confirm you're 18 or over.</p>
+    <p class="lead">Use a photo of your passport, driving licence or other government photo ID to confirm you're 18 or over. You only need to do this once.</p>
     @if (Model.Error is not null)
     {
         <p class="notice error" role="alert">@Model.Error</p>
@@ -73,13 +79,13 @@ else if (Model.ShowDocument)
         {
             <a asp-page="./CheckAge" asp-route-returnUrl="@Model.ReturnUrl">Use a selfie video instead</a>
         }
-        <a href="@Model.ContinueUrl">Skip for now (you can browse, but not post or comment)</a>
+        <a href="@Model.ContinueUrl">Not now (sensitive posts stay blurred)</a>
     </div>
     <p class="lead" style="margin-top:12px;font-size:14px">@check.AttemptsLeft @(check.AttemptsLeft == 1 ? "try" : "tries") left today.</p>
 }
 else
 {
-    <p class="lead">Bad Jockeys is for people aged 18 and over. Record a short selfie video, about 4 seconds, turning your head left and then right.</p>
+    <p class="lead">Some posts show graphic injuries or serious crashes, so they're only for adults. To view them, confirm you're 18 or over once: record a short selfie video, about 4 seconds, turning your head left and then right.</p>
 
     <div class="consent" id="consent-text">
         <strong>What we check, and what we keep</strong>
@@ -109,7 +115,7 @@ else
 
     <div class="links">
         <a id="age-document" asp-page="./CheckAge" asp-route-method="document" asp-route-returnUrl="@Model.ReturnUrl">Use photo ID instead</a>
-        <a id="age-skip" href="@Model.ContinueUrl">Skip for now (you can browse, but not post or comment)</a>
+        <a id="age-skip" href="@Model.ContinueUrl">Not now (sensitive posts stay blurred)</a>
     </div>
     <p class="lead" style="margin-top:12px;font-size:14px" id="age-attempts">@check.AttemptsLeft @(check.AttemptsLeft == 1 ? "try" : "tries") left today.</p>
 }

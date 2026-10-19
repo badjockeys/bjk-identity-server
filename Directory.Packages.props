@@ -7,8 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Bad Jockeys modules, from GitHub Packages (bjk-modules). -->
-    <PackageVersion Include="BJK.Modules.User" Version="0.2.0-ci.38" />
-    <PackageVersion Include="BJK.Modules.Email" Version="0.2.0-ci.38" />
+    <PackageVersion Include="BJK.Modules.User" Version="0.2.0-ci.55" />
+    <PackageVersion Include="BJK.Modules.Email" Version="0.2.0-ci.55" />
 
     <PackageVersion Include="Duende.IdentityServer.AspNetIdentity" Version="8.0.9" />
     <PackageVersion Include="Duende.IdentityServer.EntityFramework" Version="8.0.9" />
