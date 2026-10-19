@@ -168,6 +168,9 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// The sign-in pages' font (wwwroot/fonts), served from here like the web app's, so no request goes to Google.
+app.UseStaticFiles();
 app.UseIdentityServer();
 app.UseAuthorization();
 
