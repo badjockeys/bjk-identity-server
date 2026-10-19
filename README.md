@@ -28,7 +28,8 @@ tests/
 | Sign-in pages: sign in/up (date of birth, 13+), two-step (authenticator app, email codes, recovery codes), Google/Apple/Facebook, forgot password, reactivate, account settings, verify your age for sensitive posts | Razor Pages in this host | |
 | Age policy (19 Oct 2026): minimum age 13 by declared date of birth (stored on the account; under 13 refused and not kept); `minor` = `"true"` in tokens for under-18s, worked out at every token issue and refresh | BJK.Modules.User + this host | `users` |
 | Age check (18+, on demand, to view sensitive posts): head-turn selfie with liveness check and age estimate, or photo ID; `age_verified` claim. Not offered to under-18s by date of birth | BJK.Modules.User + YuNet (ONNX Runtime) in this host | `users` (outcome only) |
-| Data Protection keys (cookies, antiforgery, two-step tokens), shared by all instances | ASP.NET Core Data Protection | `auth` |
+| Data Protection keys (cookies, antiforgery, two-step tokens, stored two-step secrets), shared by all instances; encrypted with an Azure Key Vault key in deployed environments | ASP.NET Core Data Protection + Azure Key Vault | `auth` |
+| Two-step secrets (authenticator keys and recovery codes) encrypted at rest | `ProtectedUserStore` in this host | `auth.AspNetUserTokens` |
 | Tokens, signing keys, sessions | Duende IdentityServer 8 | `idsrv` |
 | Account status, deactivation and retention, management API (`/api/users`), outbox of user events | BJK.Modules.User | `users` |
 
@@ -38,7 +39,9 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 
 | Key | Notes |
 |---|---|
-| `ConnectionStrings:IdentityDatabase` | Required. |
+| `ConnectionStrings:IdentityDatabase` | Required. Deployed environments must use an encrypted connection and the managed identity: see [Encryption](#encryption). |
+| `DataProtection:KeyVaultKeyId` | **Required outside Development** (the app won't start without it): the Azure Key Vault key that encrypts the Data Protection keys, e.g. `https://<vault>.vault.azure.net/keys/dataprotection`. Empty locally (keys stored unencrypted, with a warning in the log). |
+| `DataProtection:ManagedIdentityClientId` | Optional: client id of a user-assigned managed identity for Key Vault. Empty uses the system-assigned identity (DefaultAzureCredential). |
 | `Duende:LicenseKey` | Not needed for development or testing; required in production. The free Community Edition covers companies under $1M revenue. |
 | `MediatR:LicenseKey` | MediatR 13+ licence key; free Community licence under $5M revenue. |
 | `Database:AllowDestructiveMigrations` | Default `false`. |
@@ -57,6 +60,31 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. |
 
 Locally these come from .NET user secrets: load them from `user-secrets.template.json`. In Azure they come from Key Vault and App Service settings. The appsettings files hold no environment settings, and no secrets are stored in the repo.
+
+## Encryption
+
+**Data Protection keys.** Cookies, antiforgery tokens, two-step tokens and the stored two-step secrets are protected with ASP.NET Core Data Protection. Its keys live in SQL (`auth.DataProtectionKeys`) so every instance shares them.
+- **Deployed environments:** each key is wrapped with an Azure Key Vault key (`DataProtection:KeyVaultKeyId`, via `ProtectKeysWithAzureKeyVault`) using the app's managed identity (DefaultAzureCredential). A copy of the database alone can't unwrap them. The app refuses to start outside Development without the setting.
+- **What the managed identity needs on that key:** get, wrap key and unwrap key (Key Vault Crypto User, or an access policy with those permissions).
+- **Don't delete or disable the Key Vault key** (keep soft delete and purge protection on). Without it, existing keys can't be unwrapped: everyone is signed out, and stored two-step secrets can't be read. Rotating the key in Key Vault is fine: old versions stay usable.
+- **Locally,** the keys are stored unencrypted and the app logs a warning.
+
+**Two-step secrets.** Authenticator app keys and recovery codes in `auth.AspNetUserTokens` are encrypted with Data Protection (`ProtectedUserStore`, stored as `dp1:` plus the payload).
+- ASP.NET Identity uses them exactly as before.
+- At startup, after the settings checks, the app encrypts any older plain-text values. Each row is only updated if it still holds the value that was read, so this is safe to run on several instances at once. Only the number of rows is logged.
+- No schema change is needed (the column is `nvarchar(max)`).
+
+**Database connections.** Deployed connection strings must:
+- encrypt the connection and check the server's certificate: `Encrypt=True`, and never `TrustServerCertificate=True`;
+- sign in as the app's managed identity: `Authentication=Active Directory Managed Identity`, with no user name or password. For a user-assigned identity, add `User Id=<its client id>`.
+
+For example:
+
+```
+Server=tcp:<server>.database.windows.net,1433;Database=idsrv;Encrypt=True;Authentication=Active Directory Managed Identity
+```
+
+The managed identity is created as a database user (`CREATE USER [<app name>] FROM EXTERNAL PROVIDER`) with the roles the app needs. `TrustServerCertificate=True` appears only in the local Docker and CI connection strings, where SQL Server has a self-signed certificate.
 
 ## Local development
 

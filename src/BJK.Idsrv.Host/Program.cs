@@ -3,6 +3,7 @@ using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.AgeAssurance;
 using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Idsrv.Host.Services.Security;
 using BJK.Idsrv.Host.Services.SignUp;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
@@ -61,7 +62,11 @@ builder.Services
         options.SignIn.RequireConfirmedEmail = false;
     })
     .AddEntityFrameworkStores<BjkIdentityDbContext>()
+    // The authenticator key and recovery codes are encrypted at rest (Data Protection).
+    .AddUserStore<ProtectedUserStore>()
     .AddDefaultTokenProviders();
+builder.Services.AddSingleton<TwoFactorSecretProtector>();
+builder.Services.AddHostedService<TwoFactorSecretsBackfill>();
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -70,10 +75,9 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.AccessDeniedPath = "/Account/AccessDenied";
 });
 
-// Keys for cookies, antiforgery and two-factor tokens, shared by every instance through the database.
-builder.Services.AddDataProtection()
-    .SetApplicationName("bjk-identity-server")
-    .PersistKeysToDbContext<BjkIdentityDbContext>();
+// Keys for cookies, antiforgery, two-factor tokens and the stored two-step secrets, shared by every instance through
+// the database and, outside Development, encrypted with an Azure Key Vault key (DataProtection:KeyVaultKeyId).
+builder.Services.AddBjkDataProtection(builder.Configuration);
 
 // Social sign-in: each provider is switched on only when its keys are configured.
 builder.Services.AddAuthentication().AddSocialSignIn(builder.Configuration);
@@ -151,6 +155,7 @@ var app = builder.Build();
 await app.Services.MigrateDatabaseAsync<BjkIdentityDbContext>();
 await app.Services.MigrateDatabaseAsync<PersistedGrantDbContext>();
 await app.Services.InitialiseBjkModulesAsync();
+app.WarnIfUnprotected();
 await IdentitySeeder.SeedAsync(app.Services);
 
 app.UseExceptionHandler();

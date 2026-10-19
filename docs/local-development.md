@@ -80,6 +80,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
 | `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
 | `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age policy below) |
+| `DataProtection:*` | Leave empty locally. The Data Protection keys are then stored unencrypted, and the app logs a warning. Deployed environments wrap them with a Key Vault key (see Encryption in the README) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
