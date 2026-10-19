@@ -22,9 +22,18 @@ public sealed class LoginModel(
 
     public IReadOnlyList<AuthenticationScheme> Providers { get; private set; } = [];
 
-    public async Task OnGetAsync()
+    public async Task<IActionResult> OnGetAsync()
     {
+        // Already signed in but sent back here: an older account without a date of birth gets no tokens, so the
+        // authorize endpoint asks for a sign-in again. Ask for the date of birth instead of showing the form.
+        if (User.Identity?.IsAuthenticated == true && await users.GetUserAsync(User) is { } current
+            && await flow.FinishSignUpAsync(current, ReturnUrl, new PageModelUrls(this)) is { } finish)
+        {
+            return finish;
+        }
+
         Providers = (await signIn.GetExternalAuthenticationSchemesAsync()).ToList();
+        return Page();
     }
 
     public async Task<IActionResult> OnPostAsync()

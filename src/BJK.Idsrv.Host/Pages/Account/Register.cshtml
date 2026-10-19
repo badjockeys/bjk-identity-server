@@ -4,7 +4,7 @@
     ViewData["Title"] = "Create an account";
 }
 <h1>Create an account</h1>
-<p class="lead">You'll choose your @@handle and display name next.</p>
+<p class="lead">You need to be 13 or over. You'll choose your @@handle and display name next.</p>
 
 <form method="post">
     <div asp-validation-summary="All" class="validation-summary-errors"></div>
@@ -18,6 +18,8 @@
 
     <label asp-for="Input.ConfirmPassword">Confirm password</label>
     <input asp-for="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+
+    <partial name="_DateOfBirth" for="Input.DateOfBirth" />
 
     <partial name="_Turnstile" />
     <button type="submit">Create account</button>

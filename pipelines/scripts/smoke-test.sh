@@ -2,9 +2,11 @@
 # End-to-end smoke test: starts the identity server against a real SQL Server and RabbitMQ, exercises the
 # User module through its HTTP API and the token endpoint, checks the rows in the database and the events
 # published to RabbitMQ, then restarts the app to prove startup migrations keep existing data and the
-# retention job deletes accounts whose grace period has ended. The age check runs with the Development providers:
-# an estimate of 30 passes; on the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts
-# Cloudflare's CF-IPCountry header: sign-up from GB works, from FR or with no header it's refused.
+# retention job deletes accounts whose grace period has ended. Age policy (19 Oct 2026): sign-up asks for the date
+# of birth (13+, under 13 refused and not kept; no selfie at sign-up), tokens carry minor=true for under-18s, and the
+# age check is on demand for sensitive posts. It runs with the Development providers: an estimate of 30 passes; on
+# the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts Cloudflare's CF-IPCountry header:
+# sign-up from GB works, from FR or with no header it's refused.
 #
 # Expects the app to be built (Release) and these environment variables:
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
@@ -23,8 +25,15 @@ PROJECT=src/BJK.Idsrv.Host
 EMAIL1=rider.one@example.com
 EMAIL2=rider.two@example.com
 EMAIL3=young.rider@example.com
+EMAIL4=teen.rider@example.com
 PASSWORD='Passw0rd!'
 NEW_PASSWORD='N3wPassw0rd!'
+
+# Dates of birth relative to today (UTC), as the identity server works them out.
+ADULT_DOB=1990-06-15
+TODAY=$(date -u +%F)
+TEEN_DOB=$(date -u -d "$TODAY -15 years" +%F)           # 15 today
+UNDER13_DOB=$(date -u -d "$TODAY -13 years +1 day" +%F) # 13 tomorrow: still 12 today
 
 # Cloudflare's dummy Turnstile token. CI configures Cloudflare's "always passes" test secret, which accepts any
 # token, so the rejection path is tested at the end with the "always fails" test secret.
@@ -220,7 +229,7 @@ PASSED+=("unregistered redirect addresses are refused")
 # ---------- CAPTCHA ----------
 
 CAPTCHA=""
-request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 400 "register without a CAPTCHA token is rejected"
 request POST /api/users/password-reset "$(body --arg e "$EMAIL1" '{email: $e}')"
 expect 400 "forgot password without a CAPTCHA token is rejected"
@@ -233,23 +242,62 @@ CAPTCHA=$DUMMY_CAPTCHA
 
 # ---------- register ----------
 
-request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 201 "register user 1"
 USER1_ID=$(json .id)
 
-request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL1" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 400 "duplicate email is rejected"
 
-request POST /api/users "$(body '{email: "weak@example.com", password: "short"}')"
+request POST /api/users "$(body '{email: "weak@example.com", password: "short", dateOfBirth: "1990-06-15"}')"
 expect 400 "weak password is rejected"
 [ "$(json '.errors.Password | length')" -gt 0 ] || fail "Expected password errors, got: $RESPONSE"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = 'weak@example.com'" 0 "rejected registration left no account behind"
 
-request POST /api/users "$(body --arg e "$EMAIL2" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL2" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 201 "register user 2"
 USER2_ID=$(json .id)
 
-expect_sql "SELECT COUNT(*) FROM users.Accounts a JOIN auth.AspNetUsers u ON LOWER(CONVERT(nvarchar(36), a.Id)) = LOWER(u.Id)" 2 "each account id equals its sign-in account id"
+# ---------- minimum age 13 ----------
+
+request POST /api/users "$(body --arg e "$EMAIL4" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 400 "sign-up without a date of birth is refused"
+request POST /api/users "$(body --arg e "$EMAIL4" --arg p "$PASSWORD" --arg d "$UNDER13_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
+expect 400 "sign-up under 13 is refused"
+grep -q "13 or over" <<< "$(json '.errors.DateOfBirth[0]')" || fail "Expected the kind under-13 message: $RESPONSE"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL4'" 0 "an under-13 sign-up creates no account"
+expect_sql "SELECT COUNT(*) FROM users.Accounts WHERE DateOfBirth = '$UNDER13_DOB'" 0 "and keeps no date of birth"
+
+# The sign-up page: under 13 goes to the kind refusal page, with nothing created.
+rm -f cookies.txt
+curl -s -c cookies.txt -b cookies.txt "$BASE_URL/Account/Register" -o register.html
+XSRF=$(grep -o 'name="__RequestVerificationToken" type="hidden" value="[^"]*"' register.html | head -1 | sed 's/.*value="//; s/"$//')
+[ -n "$XSRF" ] || XSRF=$(grep -o '__RequestVerificationToken[^>]*value="[^"]*"' register.html | head -1 | sed 's/.*value="//; s/"$//')
+[ -n "$XSRF" ] || fail "No antiforgery token on the sign-up page."
+grep -q 'autocomplete="bday-year"' register.html || fail "The sign-up page doesn't ask for the date of birth."
+grep -q "<legend>Date of birth</legend>" register.html || fail "The date of birth isn't in a labelled fieldset."
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt -c cookies.txt -b cookies.txt -X POST "$BASE_URL/Account/Register" \
+  --data-urlencode "__RequestVerificationToken=$XSRF" --data-urlencode "Input.Email=$EMAIL4" \
+  --data-urlencode "Input.Password=$PASSWORD" --data-urlencode "Input.ConfirmPassword=$PASSWORD" \
+  --data-urlencode "Input.DateOfBirth.Day=$(date -u -d "$UNDER13_DOB" +%-d)" \
+  --data-urlencode "Input.DateOfBirth.Month=$(date -u -d "$UNDER13_DOB" +%-m)" \
+  --data-urlencode "Input.DateOfBirth.Year=$(date -u -d "$UNDER13_DOB" +%Y)" \
+  --data-urlencode "cf-turnstile-response=$DUMMY_CAPTCHA")
+LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r' || true)
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/TooYoung" <<< "$LOCATION" || fail "Expected the sign-up page to send an under-13 to TooYoung, got $STATUS $LOCATION"
+echo "ok  the sign-up page sends under-13s to the refusal page"
+PASSED+=("sign-up page refuses under 13 (302)")
+request GET /Account/TooYoung
+expect 200 "the refusal page"
+grep -q "13 or over" response.json || fail "The refusal page doesn't look right."
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL4'" 0 "the refused sign-up page created no account"
+
+request POST /api/users "$(body --arg e "$EMAIL4" --arg p "$PASSWORD" --arg d "$TEEN_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
+expect 201 "register a 15-year-old"
+USER4_ID=$(json .id)
+expect_sql "SELECT CONVERT(varchar(10), DateOfBirth, 23) FROM users.Accounts WHERE Id = '$USER4_ID'" "$TEEN_DOB" "the date of birth is stored on the account"
+
+expect_sql "SELECT COUNT(*) FROM users.Accounts a JOIN auth.AspNetUsers u ON LOWER(CONVERT(nvarchar(36), a.Id)) = LOWER(u.Id)" 3 "each account id equals its sign-in account id"
 
 # ---------- confirm email ----------
 
@@ -315,6 +363,9 @@ expect 401 "data export needs a token"
 request GET /api/me/data-export "" "$TOKEN1"
 expect 200 "user 1 downloads their data"
 [ "$(json .sections.account.email)" = "$EMAIL1" ] || fail "Export doesn't contain user 1's email: $RESPONSE"
+[ "$(json .sections.account.dateOfBirth)" = "$ADULT_DOB" ] || fail "Export doesn't contain user 1's date of birth: $RESPONSE"
+echo "ok  the data export includes the date of birth"
+PASSED+=("data export includes the date of birth")
 [ "$(json .userId)" = "$USER1_ID" ] || fail "Export is for the wrong user: $RESPONSE"
 
 # ---------- admin ----------
@@ -325,18 +376,54 @@ ADMIN=$(json .access_token)
 
 request GET "/api/admin/users?page=1&pageSize=20" "" "$ADMIN"
 expect 200 "admin lists users"
-[ "$(json .totalCount)" = "2" ] || fail "Expected 2 users, got: $RESPONSE"
-[ "$(json '[.items[].email] | sort | join(",")')" = "$EMAIL1,$EMAIL2" ] || fail "Expected both emails in the list: $RESPONSE"
+[ "$(json .totalCount)" = "3" ] || fail "Expected 3 users, got: $RESPONSE"
+[ "$(json '[.items[].email] | sort | join(",")')" = "$EMAIL1,$EMAIL2,$EMAIL4" ] || fail "Expected every email in the list: $RESPONSE"
 
-# ---------- age check (Development providers: every estimate is 30) ----------
+# ---------- under-18s: the minor claim; no age check for them ----------
 
-# Stand-ins for the selfie video and ID photo. The Development liveness check accepts any non-empty video.
+user_token "$EMAIL4" "$PASSWORD"
+expect 200 "the 15-year-old signs in straight after sign-up (no selfie at sign-up)"
+TOKEN4=$(json .access_token)
+[ "$(jwt "$TOKEN4" '.minor')" = "true" ] || fail "Expected minor=true in the 15-year-old's token: $(jwt "$TOKEN4" '.')"
+[ "$(jwt "$TOKEN4" '.age_verified')" = "null" ] || fail "The 15-year-old's token shouldn't carry age_verified."
+echo "ok  a 15-year-old's access token carries minor=true"
+PASSED+=("15-year-old: minor=true in the access token")
+STATUS=$(curl -s -o response.json -w '%{http_code}' -H "Authorization: Bearer $TOKEN4" "$BASE_URL/connect/userinfo")
+RESPONSE=$(cat response.json)
+expect 200 "userinfo for the 15-year-old"
+[ "$(json .minor)" = "true" ] || fail "Expected minor=true from userinfo: $RESPONSE"
+[ "$(jwt "$TOKEN1" '.minor')" = "null" ] || fail "An adult's token shouldn't carry minor: $(jwt "$TOKEN1" '.')"
+echo "ok  an adult's token has no minor claim"
+PASSED+=("adult: no minor claim")
+
+request GET /api/users/me/age-check "" "$TOKEN4"
+expect 200 "the 15-year-old reads their age check"
+[ "$(json '(.underAgeByDateOfBirth | tostring) + "/" + (.canUseFaceCheck | tostring) + "/" + (.canUseDocumentCheck | tostring)')" = "true/false/false" ] || fail "Expected the age check not to be offered: $RESPONSE"
+grep -q "only for adults" <<< "$(json .message)" || fail "Expected a kind explanation: $RESPONSE"
 head -c 20000 /dev/urandom > selfie.webm
 head -c 5000 /dev/urandom > id-photo.jpg
+upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN4"
+expect 400 "an under-18 by date of birth can't start the age check"
+upload /api/users/me/age-check/document image id-photo.jpg image/jpeg "$TOKEN4"
+expect 400 "nor use photo ID"
+expect_sql "SELECT CONCAT(AgeCheckStatus, '/', AgeCheckAttempts) FROM users.Accounts WHERE Id = '$USER4_ID'" "NotChecked/0" "no check ran for the under-18"
+
+# Accounts from before dates of birth were asked for get no tokens until they give one.
+sql "UPDATE users.Accounts SET DateOfBirth = NULL WHERE Id = '$USER4_ID'" > /dev/null
+user_token "$EMAIL4" "$PASSWORD"
+expect 400 "an older account with no date of birth gets no token"
+sql "UPDATE users.Accounts SET DateOfBirth = '$TEEN_DOB' WHERE Id = '$USER4_ID'" > /dev/null
+user_token "$EMAIL4" "$PASSWORD"
+expect 200 "it gets tokens again once the date of birth is recorded"
+
+# ---------- age check, on demand for sensitive posts (Development providers: every estimate is 30) ----------
+
+# selfie.webm and id-photo.jpg (above) stand in for the video and photo. The Development liveness check accepts any
+# non-empty video.
 
 [ "$(jwt "$TOKEN1" '.age_verified')" = "null" ] || fail "A new account's token shouldn't carry age_verified: $(jwt "$TOKEN1" '.')"
-echo "ok  a new account's token has no age_verified claim"
-PASSED+=("no age_verified before the age check")
+echo "ok  no age_verified after sign-up"
+PASSED+=("no age_verified after sign-up")
 
 request GET /api/users/me/age-check "" "$TOKEN1"
 expect 200 "user 1 reads their age check"
@@ -353,7 +440,7 @@ upload /api/users/me/age-check/face video id-photo.jpg image/gif "$TOKEN1"
 expect 400 "the age check refuses a file that isn't a video"
 
 upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN1"
-expect 200 "user 1 passes the selfie age check"
+expect 200 "user 1 passes the on-demand age check (Development estimator)"
 [ "$(json .status)" = "Passed" ] || fail "Expected Passed: $RESPONSE"
 expect_sql "SELECT CONCAT(AgeCheckStatus, '/', AgeCheckMethod, '/', AgeCheckResult, '/', AgeCheckProvider) FROM users.Accounts WHERE Id = '$USER1_ID'" "Passed/FaceEstimate/Passed/Development" "only the outcome is stored"
 expect_sql "SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON t.object_id = c.object_id WHERE SCHEMA_NAME(t.schema_id) = 'users' AND TYPE_NAME(c.system_type_id) IN ('varbinary', 'image')" 0 "no column could hold a video or photo"
@@ -463,7 +550,7 @@ user_token "$EMAIL2" "$PASSWORD"
 expect 400 "a deactivated user can't sign in"
 expect_sql "SELECT Status FROM users.Accounts WHERE Id = '$USER2_ID'" Deactivated "user 2 is marked deactivated"
 expect_sql "SELECT DATEDIFF(day, DeactivatedAt, DeletionDueAt) FROM users.Accounts WHERE Id = '$USER2_ID'" 90 "deletion is due 90 days later"
-expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 2 "the sign-in account is kept during the grace period"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 3 "the sign-in account is kept during the grace period"
 
 request POST /api/users/password-reset "$(body --arg e "$EMAIL2" '{email: $e}')"
 expect 202 "forgot password for a deactivated account looks the same"
@@ -504,8 +591,8 @@ start_app
 
 wait_for_sql "SELECT COUNT(*) FROM users.Accounts WHERE Id = '$USER2_ID'" 0 "retention job deletes user 2's account record"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL2'" 0 "and their sign-in account"
-expect_sql "SELECT COUNT(*) FROM users.Accounts" 1 "user 1's account survives the restart"
-expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 1 "user 1's sign-in account survives the restart"
+expect_sql "SELECT COUNT(*) FROM users.Accounts" 2 "the other accounts survive the restart"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers" 2 "and their sign-in accounts"
 wait_for_sql "SELECT COUNT(*) FROM users.Outbox WHERE PublishedAt IS NULL" 0 "the deletion event is published"
 expect_events 4 "Deleted event on the bjk.users exchange"
 user_token "$EMAIL1" "$NEW_PASSWORD"
@@ -521,10 +608,10 @@ stop_app
 start_app SignUp__TrustCloudflareCountryHeader=true AgeAssurance__Estimator__Development__Age=15 AgeAssurance__Document__Development__Age=16
 
 COUNTRY=""
-request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 403 "sign-up without a country header is refused"
 COUNTRY=FR
-request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 403 "sign-up from France is refused"
 grep -q "only open for new accounts in the UK" <<< "$(json .detail)" || fail "Expected the UK-only message: $RESPONSE"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL3'" 0 "refused sign-ups create no account"
@@ -549,12 +636,12 @@ echo "ok  the country check logs only the country and outcome"
 PASSED+=("country check logs country and outcome, no IP")
 
 COUNTRY=GB
-request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 201 "register user 3 from the UK"
 COUNTRY=""
 USER3_ID=$(json .id)
 user_token "$EMAIL3" "$PASSWORD"
-expect 200 "user 3 signs in without an age check"
+expect 200 "user 3 signs in straight after sign-up"
 TOKEN3=$(json .access_token)
 
 upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN3"
@@ -580,7 +667,7 @@ stop_app
 
 # Cloudflare's "always fails" test secret makes Cloudflare reject every token, as it would a forged one.
 start_app Captcha__TurnstileSecretKey=2x0000000000000000000000000000000AA
-request POST /api/users "$(body '{email: "bot@example.com", password: "Passw0rd!"}')"
+request POST /api/users "$(body '{email: "bot@example.com", password: "Passw0rd!", dateOfBirth: "1990-06-15"}')"
 expect 400 "register with a token Cloudflare rejects is refused"
 [ "$(json '.errors["X-Captcha-Token"] | length')" -gt 0 ] || fail "Expected a CAPTCHA error, got: $RESPONSE"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = 'bot@example.com'" 0 "rejected CAPTCHA created no account"

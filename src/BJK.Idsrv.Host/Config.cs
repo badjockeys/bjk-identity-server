@@ -49,9 +49,10 @@ public static class Config
 
     /// <summary>
     /// Claims every API needs about the user, so they're copied into access tokens. age_verified is only present
-    /// (as "true") once the account has passed the age check (see AgeAwareProfileService).
+    /// (as "true") once the account has passed the age check, and minor (as "true") while the declared date of birth
+    /// says the user is under 18 (see AgeAwareProfileService).
     /// </summary>
-    private static readonly string[] ApiUserClaims = ["role", "email_verified", AgeVerificationClaims.AgeVerified];
+    private static readonly string[] ApiUserClaims = ["role", "email_verified", AgeVerificationClaims.AgeVerified, AgeVerificationClaims.Minor];
 
     public static IEnumerable<IdentityResource> IdentityResources =>
     [
@@ -116,6 +117,10 @@ public static class Config
                 AllowedScopes = UserScopes(),
                 AccessTokenLifetime = (int)TimeSpan.FromMinutes(15).TotalSeconds,
                 RefreshTokenUsage = TokenUsage.OneTimeOnly,
+
+                // Re-read the user's claims on every refresh: age_verified appears straight after the age check,
+                // and minor lapses on the 18th birthday, without signing in again.
+                UpdateAccessTokenClaimsOnRefresh = true,
                 RefreshTokenExpiration = TokenExpiration.Sliding,
                 SlidingRefreshTokenLifetime = (int)TimeSpan.FromDays(30).TotalSeconds,
                 AbsoluteRefreshTokenLifetime = (int)TimeSpan.FromDays(90).TotalSeconds,
@@ -139,6 +144,10 @@ public static class Config
                 AllowedScopes = UserScopes(),
                 AccessTokenLifetime = (int)TimeSpan.FromMinutes(15).TotalSeconds,
                 RefreshTokenUsage = TokenUsage.OneTimeOnly,
+
+                // Re-read the user's claims on every refresh: age_verified appears straight after the age check,
+                // and minor lapses on the 18th birthday, without signing in again.
+                UpdateAccessTokenClaimsOnRefresh = true,
                 RefreshTokenExpiration = TokenExpiration.Sliding,
                 SlidingRefreshTokenLifetime = (int)TimeSpan.FromDays(30).TotalSeconds,
                 AbsoluteRefreshTokenLifetime = (int)TimeSpan.FromDays(180).TotalSeconds,
@@ -163,6 +172,10 @@ public static class Config
                 AllowedScopes = [.. UserScopes(), .. Scopes.Moderation],
                 AccessTokenLifetime = (int)TimeSpan.FromMinutes(10).TotalSeconds,
                 RefreshTokenUsage = TokenUsage.OneTimeOnly,
+
+                // Re-read the user's claims on every refresh: age_verified appears straight after the age check,
+                // and minor lapses on the 18th birthday, without signing in again.
+                UpdateAccessTokenClaimsOnRefresh = true,
                 RefreshTokenExpiration = TokenExpiration.Sliding,
                 SlidingRefreshTokenLifetime = (int)TimeSpan.FromHours(8).TotalSeconds,
                 AbsoluteRefreshTokenLifetime = (int)TimeSpan.FromHours(12).TotalSeconds,

@@ -3,6 +3,7 @@ using BJK.Modules.User;
 using BJK.Modules.User.API.Controllers;
 using BJK.Modules.User.Domain;
 using BJK.Modules.User.UseCases.AgeChecks;
+using BJK.Modules.User.UseCases.SignUp;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -12,10 +13,13 @@ using ValidationException = FluentValidation.ValidationException;
 namespace BJK.Idsrv.Host.Pages.Account;
 
 /// <summary>
-/// "Check your age", straight after sign-up (and from /Manage until passed): a 3–5 second head-turn selfie recorded in
-/// the browser, or a photo of an ID instead. The upload is read into memory (the limits below keep ASP.NET from
-/// buffering it to disk), checked through the User module and wiped; only the outcome is kept. People can skip it
-/// and still sign in, but their tokens don't carry age_verified until they pass, and the apps prompt them.
+/// "Verify your age to view sensitive posts" (<c>/Account/CheckAge?returnUrl=...</c>): the highly effective age
+/// check, on demand. The web app sends a signed-in user here when they tap a sensitive post; afterwards they go back
+/// to <c>returnUrl</c> (one of our apps' pages) and their next token (or refresh) carries age_verified. A 3–5 second
+/// head-turn selfie recorded in the browser (liveness against spoofing, then the face age estimate), or a photo of an
+/// ID instead. If the declared date of birth says they're under 18, the page explains that sensitive posts are for
+/// adults and offers nothing to check. The upload is read into memory (the limits below keep ASP.NET from buffering
+/// it to disk), checked through the User module and wiped; only the outcome is kept.
 /// </summary>
 [RequestSizeLimit(AgeCheckUploads.MaxRequestBytes)]
 [RequestFormLimits(MultipartBodyLengthLimit = AgeCheckUploads.MaxRequestBytes, MemoryBufferThreshold = AgeCheckUploads.MaxRequestBytes)]
@@ -35,13 +39,20 @@ public sealed class CheckAgeModel(ISender sender, LoginFlow flow, IOptions<AgeAs
     public bool ShowDocument => string.Equals(Method, "document", StringComparison.OrdinalIgnoreCase)
         || (!Check.CanUseFaceCheck && Check.CanUseDocumentCheck);
 
-    public string ContinueUrl => Url.Content(flow.SafeReturnUrl(ReturnUrl, Url));
+    public string ContinueUrl => Url.Content(flow.SafeAppReturnUrl(ReturnUrl, Url));
 
     public int ChallengeAge => options.Value.ChallengeAge;
 
-    public async Task OnGetAsync()
+    public async Task<IActionResult> OnGetAsync()
     {
+        // Older accounts give their date of birth first: it decides whether the check is offered at all.
+        if (!(await sender.Send(new GetMySignUpQuery(), HttpContext.RequestAborted)).HasDateOfBirth)
+        {
+            return RedirectToPage("./DateOfBirth", new { returnUrl = Url.Page("./CheckAge", new { ReturnUrl }) });
+        }
+
         Check = await sender.Send(new GetMyAgeCheckQuery(), HttpContext.RequestAborted);
+        return Page();
     }
 
     /// <summary>The recorded selfie, posted by the page's script. Answers JSON for the script to show.</summary>

@@ -15,6 +15,18 @@
         <a class="button secondary" asp-page="./Login">Cancel</a>
         break;
 
+    case ExternalLoginModel.Result.NeedsDateOfBirth:
+        <h1>Create your account</h1>
+        <p class="lead">You're signing up with @Model.ProviderName as @Model.Email. You need to be 13 or over to join Bad Jockeys.</p>
+        <form method="post" asp-page-handler="CreateAccount">
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors"></div>
+            <input type="hidden" asp-for="ReturnUrl" />
+            <partial name="_DateOfBirth" for="DateOfBirth" />
+            <button type="submit">Create account</button>
+        </form>
+        <a class="button secondary" asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Cancel</a>
+        break;
+
     case ExternalLoginModel.Result.EmailInUse:
         <h1>You already have an account</h1>
         <p class="lead">There's already a Bad Jockeys account for @Model.Email. Sign in with your password, then link @Model.ProviderName from your account page so you can use it next time.</p>

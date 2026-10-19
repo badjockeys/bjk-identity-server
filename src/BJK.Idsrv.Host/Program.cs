@@ -99,10 +99,10 @@ builder.Services
         options.EnableTokenCleanup = true;
     })
     .AddAspNetIdentity<BjkIdentityUser>()
-    // Adds age_verified=true to tokens once the account has passed the age check.
+    // Tokens only for accounts with a date of birth on record; adds age_verified and minor.
     .AddProfileService<AgeAwareProfileService>();
 builder.Services.AddTransient<DefaultClaimsService>();
-builder.Services.AddTransient<IClaimsService, AgeVerifiedClaimsService>();
+builder.Services.AddTransient<IClaimsService, AgeClaimsService>();
 
 // The module APIs hosted here accept this server's own access tokens, validated in-process.
 builder.Services.AddAuthentication()
@@ -117,8 +117,8 @@ builder.Services.AddSignUpCountryCheck(builder.Configuration);
 builder.Services.AddScoped<IPasswordResetSender, EmailPasswordResetSender>();
 builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<LoginFlow>();
-// Age check: the open-source YuNet liveness checker (AgeAssurance:Liveness:Provider=YuNet); the User module adds the
-// rest and refuses Development providers outside Development.
+// The open-source YuNet liveness checker (AgeAssurance:Liveness:Provider=YuNet), used inside the on-demand age check
+// against spoofing; the User module adds the rest and refuses Development providers outside Development.
 builder.Services.AddYuNetLiveness(builder.Configuration);
 builder.Services.Configure<AdminBootstrapOptions>(builder.Configuration.GetSection(AdminBootstrapOptions.SectionName));
 
@@ -127,6 +127,7 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Manage");
     options.Conventions.AuthorizePage("/Account/CheckAge");
+    options.Conventions.AuthorizePage("/Account/DateOfBirth");
 });
 builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule());
 

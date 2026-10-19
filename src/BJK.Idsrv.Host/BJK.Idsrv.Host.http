@@ -16,7 +16,9 @@ GET {{host}}/health
 GET {{host}}/.well-known/openid-configuration
 
 ### 1. Register a user (anonymous, needs a CAPTCHA token). Creates the sign-in account (auth.AspNetUsers)
-# and the account record (users.Accounts). The handle and display name go in the core profile, not here.
+# and the account record (users.Accounts, with the date of birth). The handle and display name go in the core
+# profile, not here. People aged 13 and over can join: try a date of birth 12 years ago to see the 400 (error code
+# too_young; nothing is created or kept). Try one 15 years ago to see the minor claim in step 2's token.
 # @name register
 POST {{host}}/api/users
 Content-Type: application/json
@@ -27,17 +29,19 @@ CF-IPCountry: GB
 
 {
   "email": "{{email}}",
-  "password": "{{password}}"
+  "password": "{{password}}",
+  "dateOfBirth": "1990-06-15"
 }
 
-### 2. Sign in as that user (local test client, password grant)
+### 2. Sign in as that user (local test client, password grant). Works straight away: there's no selfie at sign-up.
+# Under-18s (by date of birth) get "minor": "true" in the token (paste it into jwt.io to see).
 # @name userToken
 POST {{host}}/connect/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=openid profile email bjk.users&username={{email}}&password={{password}}
 
-### 3. My account: email, status, dates
+### 3. My account: email, status, dates, date of birth
 GET {{host}}/api/users/me
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 
@@ -45,13 +49,15 @@ Authorization: Bearer {{userToken.response.body.$.access_token}}
 GET {{host}}/api/me/data-export
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 
-### 4a. My age check: NotChecked, 3 tries left. (Step 2's token has no age_verified claim yet.)
+### 4a. My age check, needed only to view sensitive posts: NotChecked, 3 tries left. (Step 2's token has no
+# age_verified claim.) For an under-18 by date of birth, underAgeByDateOfBirth is true and nothing is offered.
 GET {{host}}/api/users/me/age-check
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 
-### 4b. Check my age with a selfie video. With the Development providers any file passes as the video and the
-# "estimate" is AgeAssurance:Estimator:Development:Age (30 = pass, 20 = photo ID needed, 15 = under 18).
-# In the browser, /Account/CheckAge records a real one.
+### 4b. Verify my age with a selfie video (liveness, then the face estimate). With the Development providers any
+# file passes as the video and the "estimate" is AgeAssurance:Estimator:Development:Age (30 = pass, 20 = photo ID
+# needed, 15 = under 18). In the browser, /Account/CheckAge?returnUrl=... records a real one; the web app sends
+# signed-in users there when they tap a sensitive post.
 POST {{host}}/api/users/me/age-check/face
 Authorization: Bearer {{userToken.response.body.$.access_token}}
 Content-Type: multipart/form-data; boundary=bjk-boundary
