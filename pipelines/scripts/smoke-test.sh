@@ -2,7 +2,9 @@
 # End-to-end smoke test: starts the identity server against a real SQL Server and RabbitMQ, exercises the
 # User module through its HTTP API and the token endpoint, checks the rows in the database and the events
 # published to RabbitMQ, then restarts the app to prove startup migrations keep existing data and the
-# retention job deletes accounts whose grace period has ended.
+# retention job deletes accounts whose grace period has ended. The age check runs with the Development providers:
+# an estimate of 30 passes; on the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts
+# Cloudflare's CF-IPCountry header: sign-up from GB works, from FR or with no header it's refused.
 #
 # Expects the app to be built (Release) and these environment variables:
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
@@ -20,6 +22,7 @@ PROJECT=src/BJK.Idsrv.Host
 
 EMAIL1=rider.one@example.com
 EMAIL2=rider.two@example.com
+EMAIL3=young.rider@example.com
 PASSWORD='Passw0rd!'
 NEW_PASSWORD='N3wPassw0rd!'
 
@@ -70,6 +73,7 @@ request() {
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
   if [ -n "$token" ]; then args+=(-H "Authorization: Bearer $token"); fi
   if [ -n "$CAPTCHA" ]; then args+=(-H "X-Captcha-Token: $CAPTCHA"); fi
+  if [ -n "${COUNTRY:-}" ]; then args+=(-H "CF-IPCountry: $COUNTRY"); fi
   STATUS=$(curl "${args[@]}")
   RESPONSE=$(cat response.json)
 }
@@ -80,6 +84,14 @@ user_token() {
     -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
     --data-urlencode "scope=openid profile email bjk.users" \
     --data-urlencode "username=$1" --data-urlencode "password=$2")
+  RESPONSE=$(cat response.json)
+}
+
+# upload PATH FIELD FILE CONTENT_TYPE [BEARER_TOKEN]  -> sets STATUS and RESPONSE (multipart file upload)
+upload() {
+  local args=(-s -o response.json -w '%{http_code}' -X POST "$BASE_URL$1" -F "$2=@$3;type=$4")
+  if [ -n "${5:-}" ]; then args+=(-H "Authorization: Bearer $5"); fi
+  STATUS=$(curl "${args[@]}")
   RESPONSE=$(cat response.json)
 }
 
@@ -178,6 +190,9 @@ request GET /.well-known/openid-configuration
 expect 200 "discovery document"
 [ "$(json '.scopes_supported | index("bjk.posts") != null')" = "true" ] || fail "Expected bjk.posts in scopes_supported: $RESPONSE"
 echo "ok  core API scopes are published"
+[ "$(json '.scopes_supported | index("bjk.profiles.manage") != null')" = "true" ] || fail "Expected bjk.profiles.manage in scopes_supported: $RESPONSE"
+echo "ok  bjk.profiles.manage is published"
+PASSED+=("bjk.profiles.manage scope published")
 expect_sql "SELECT COUNT(*) FROM auth.AspNetRoles WHERE Name IN ('Moderator', 'Admin')" 2 "Moderator and Admin roles exist"
 
 request GET /Account/Login
@@ -269,6 +284,19 @@ expect 401 "no token is unauthorised"
 echo "ok  user 1's token says their email is verified"
 PASSED+=("token carries email_verified")
 
+# Tokens for the core API (audience bjk-api) carry the email, for report and appeal acknowledgements.
+STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/token" \
+  -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
+  --data-urlencode "scope=openid bjk.posts" \
+  --data-urlencode "username=$EMAIL1" --data-urlencode "password=$PASSWORD")
+RESPONSE=$(cat response.json)
+expect 200 "user 1 gets a core API token"
+CORE_TOKEN=$(json .access_token)
+[ "$(jwt "$CORE_TOKEN" '.email')" = "$EMAIL1" ] || fail "Expected the email in the core API token: $(jwt "$CORE_TOKEN" '.')"
+[ "$(jwt "$CORE_TOKEN" '.aud | if type == "array" then index("bjk-api") != null else . == "bjk-api" end')" = "true" ] || fail "Expected audience bjk-api: $(jwt "$CORE_TOKEN" '.')"
+echo "ok  core API tokens carry the email"
+PASSED+=("bjk-api token carries email")
+
 request GET /api/users/me "" "$TOKEN1"
 expect 200 "user 1 reads own account"
 [ "$(json .email)" = "$EMAIL1" ] || fail "Wrong account returned: $RESPONSE"
@@ -299,6 +327,71 @@ request GET "/api/admin/users?page=1&pageSize=20" "" "$ADMIN"
 expect 200 "admin lists users"
 [ "$(json .totalCount)" = "2" ] || fail "Expected 2 users, got: $RESPONSE"
 [ "$(json '[.items[].email] | sort | join(",")')" = "$EMAIL1,$EMAIL2" ] || fail "Expected both emails in the list: $RESPONSE"
+
+# ---------- age check (Development providers: every estimate is 30) ----------
+
+# Stand-ins for the selfie video and ID photo. The Development liveness check accepts any non-empty video.
+head -c 20000 /dev/urandom > selfie.webm
+head -c 5000 /dev/urandom > id-photo.jpg
+
+[ "$(jwt "$TOKEN1" '.age_verified')" = "null" ] || fail "A new account's token shouldn't carry age_verified: $(jwt "$TOKEN1" '.')"
+echo "ok  a new account's token has no age_verified claim"
+PASSED+=("no age_verified before the age check")
+
+request GET /api/users/me/age-check "" "$TOKEN1"
+expect 200 "user 1 reads their age check"
+[ "$(json '.status + "/" + (.attemptsLeft | tostring) + "/" + (.canUseFaceCheck | tostring)')" = "NotChecked/3/true" ] || fail "Expected NotChecked with 3 tries: $RESPONSE"
+
+location /Account/CheckAge
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/Login" <<< "$LOCATION" || fail "Expected the age check page to need sign-in, got $STATUS $LOCATION"
+echo "ok  the age check page needs sign-in"
+PASSED+=("age check page needs sign-in (302)")
+
+upload /api/users/me/age-check/face video selfie.webm video/webm
+expect 401 "the age check needs a token"
+upload /api/users/me/age-check/face video id-photo.jpg image/gif "$TOKEN1"
+expect 400 "the age check refuses a file that isn't a video"
+
+upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN1"
+expect 200 "user 1 passes the selfie age check"
+[ "$(json .status)" = "Passed" ] || fail "Expected Passed: $RESPONSE"
+expect_sql "SELECT CONCAT(AgeCheckStatus, '/', AgeCheckMethod, '/', AgeCheckResult, '/', AgeCheckProvider) FROM users.Accounts WHERE Id = '$USER1_ID'" "Passed/FaceEstimate/Passed/Development" "only the outcome is stored"
+expect_sql "SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON t.object_id = c.object_id WHERE SCHEMA_NAME(t.schema_id) = 'users' AND TYPE_NAME(c.system_type_id) IN ('varbinary', 'image')" 0 "no column could hold a video or photo"
+
+user_token "$EMAIL1" "$PASSWORD"
+expect 200 "user 1 signs in after passing"
+TOKEN1=$(json .access_token)
+[ "$(jwt "$TOKEN1" '.age_verified')" = "true" ] || fail "Expected age_verified=true in user 1's token: $(jwt "$TOKEN1" '.')"
+echo "ok  the access token carries age_verified=true"
+PASSED+=("access token carries age_verified=true")
+STATUS=$(curl -s -o response.json -w '%{http_code}' -H "Authorization: Bearer $TOKEN1" "$BASE_URL/connect/userinfo")
+RESPONSE=$(cat response.json)
+expect 200 "userinfo"
+[ "$(json .age_verified)" = "true" ] || fail "Expected age_verified=true from userinfo: $RESPONSE"
+
+upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN1"
+expect 400 "a passed account isn't checked again"
+request GET /api/users/me "" "$TOKEN1"
+[ "$(json .ageVerified)" = "true" ] || fail "Expected ageVerified=true on the account: $RESPONSE"
+request GET /api/me/data-export "" "$TOKEN1"
+[ "$(json '.sections.account.ageCheck.status + "/" + .sections.account.ageCheck.method')" = "Passed/FaceEstimate" ] || fail "Expected the age check in the data export: $RESPONSE"
+echo "ok  the data export includes the age check"
+PASSED+=("data export includes the age check")
+
+request GET "/api/admin/users/$USER1_ID" "" "$ADMIN"
+expect 200 "admin reads user 1"
+[ "$(json .ageCheck.status)" = "Passed" ] || fail "Expected the admin to see the age check status: $RESPONSE"
+request POST "/api/admin/users/$USER1_ID/age-check/reset" "" "$TOKEN1"
+expect 403 "users can't reset their own age check"
+request POST "/api/admin/users/$USER1_ID/age-check/reset" "" "$ADMIN"
+expect 200 "admin resets user 1's age check"
+[ "$(json .ageCheck.status)" = "NotChecked" ] || fail "Expected NotChecked after the reset: $RESPONSE"
+user_token "$EMAIL1" "$PASSWORD"
+[ "$(jwt "$(json .access_token)" '.age_verified')" = "null" ] || fail "Expected no age_verified after the reset."
+echo "ok  after a reset, tokens drop age_verified"
+PASSED+=("reset removes age_verified")
+upload /api/users/me/age-check/face video selfie.webm video/webm "$(json .access_token)"
+expect 200 "user 1 passes again"
 
 # ---------- staff roles ----------
 
@@ -421,6 +514,68 @@ request POST /api/users/reactivate "$(body --arg e "$EMAIL2" --arg p "$PASSWORD"
 expect 400 "a deleted account can't be reactivated"
 stop_app
 
+# ---------- sign-up is UK-only; age check: under 18 ----------
+
+# Restarted as if behind Cloudflare (the CF-IPCountry header is trusted), with Development age check providers
+# that see someone under 18: an estimate of 15 and an ID saying 16.
+start_app SignUp__TrustCloudflareCountryHeader=true AgeAssurance__Estimator__Development__Age=15 AgeAssurance__Document__Development__Age=16
+
+COUNTRY=""
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 403 "sign-up without a country header is refused"
+COUNTRY=FR
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 403 "sign-up from France is refused"
+grep -q "only open for new accounts in the UK" <<< "$(json .detail)" || fail "Expected the UK-only message: $RESPONSE"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL3'" 0 "refused sign-ups create no account"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt -H "CF-IPCountry: FR" "$BASE_URL/Account/Register")
+LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r' || true)
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "/Account/SignUpUnavailable" <<< "$LOCATION" || fail "Expected the sign-up page to send France to SignUpUnavailable, got $STATUS $LOCATION"
+echo "ok  the sign-up page sends visitors from outside the UK to the friendly page"
+PASSED+=("sign-up page refuses FR (302)")
+request GET /Account/SignUpUnavailable
+expect 200 "the sign-up unavailable page"
+grep -q "You can still watch posts" response.json || fail "The sign-up unavailable page doesn't look right."
+STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/token" -H "CF-IPCountry: FR" \
+  -d grant_type=password -d client_id=bjk-local-user -d client_secret=local-user-secret \
+  --data-urlencode "scope=openid bjk.users" \
+  --data-urlencode "username=$EMAIL1" --data-urlencode "password=$NEW_PASSWORD")
+RESPONSE=$(cat response.json)
+expect 200 "an existing account signs in from France"
+grep -q "Sign-up country check: FR refused" "$APP_LOG" || fail "Expected the refusal to be logged with the country code."
+grep -q "Sign-up country check: none refused" "$APP_LOG" || fail "Expected the missing header to be logged."
+if grep "Sign-up country check" "$APP_LOG" | grep -qE "127\.0\.0\.1|::1"; then fail "The country check logged an IP address."; fi
+echo "ok  the country check logs only the country and outcome"
+PASSED+=("country check logs country and outcome, no IP")
+
+COUNTRY=GB
+request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" '{email: $e, password: $p}')"
+expect 201 "register user 3 from the UK"
+COUNTRY=""
+USER3_ID=$(json .id)
+user_token "$EMAIL3" "$PASSWORD"
+expect 200 "user 3 signs in without an age check"
+TOKEN3=$(json .access_token)
+
+upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN3"
+expect 200 "user 3's selfie is checked"
+[ "$(json '.status + "/" + .result + "/" + (.canUseDocumentCheck | tostring)')" = "Failed/Underage/true" ] || fail "Expected an under-18 result with photo ID still offered: $RESPONSE"
+grep -q "18 and over" <<< "$(json .message)" || fail "Expected a kind under-18 message: $RESPONSE"
+upload /api/users/me/age-check/face video selfie.webm video/webm "$TOKEN3"
+expect 400 "after an under-18 estimate the selfie can't be retried"
+upload /api/users/me/age-check/document image id-photo.jpg image/jpeg "$TOKEN3"
+expect 200 "user 3's photo ID is checked"
+[ "$(json '.status + "/" + .method + "/" + (.canUseDocumentCheck | tostring)')" = "Failed/Document/false" ] || fail "Expected a final under-18 result: $RESPONSE"
+upload /api/users/me/age-check/document image id-photo.jpg image/jpeg "$TOKEN3"
+expect 400 "under 18 on photo ID is final"
+user_token "$EMAIL3" "$PASSWORD"
+expect 200 "user 3 can still sign in"
+[ "$(jwt "$(json .access_token)" '.age_verified')" = "null" ] || fail "An under-18 account's token must not carry age_verified."
+echo "ok  an under-18 account gets no age_verified claim"
+PASSED+=("under 18: no age_verified")
+expect_sql "SELECT CONCAT(AgeCheckStatus, '/', AgeCheckMethod, '/', AgeCheckAttempts) FROM users.Accounts WHERE Id = '$USER3_ID'" "Failed/Document/2" "user 3 is recorded as under 18, by photo ID, after 2 tries"
+stop_app
+
 # ---------- CAPTCHA rejected by Cloudflare ----------
 
 # Cloudflare's "always fails" test secret makes Cloudflare reject every token, as it would a forged one.
@@ -445,6 +600,10 @@ check_refuses_to_start() {
   echo "ok  $label"; PASSED+=("$label")
 }
 check_refuses_to_start "won't start with SendGrid but no API key" "Email:SendGrid:ApiKey is required" Email__Provider=SendGrid
+# The Development age check providers don't check anyone's age, so only Development may use them.
+check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
 
 # ---------- summary ----------
 

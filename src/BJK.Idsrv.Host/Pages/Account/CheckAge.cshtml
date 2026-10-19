@@ -1,0 +1,236 @@
+@page
+@model CheckAgeModel
+@using BJK.Modules.User.Domain
+@{
+    ViewData["Title"] = "Check your age";
+    var check = Model.Check;
+}
+@section Head {
+    <style>
+        .age-camera { position: relative; margin: 16px 0 0; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; display: none; }
+        .age-camera video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+        .age-camera .oval { position: absolute; inset: 10% 24%; border: 3px dashed rgba(255,255,255,.85); border-radius: 50%; pointer-events: none; }
+        .age-prompt { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 12px; background: rgba(0,0,0,.6); color: #fff; font-weight: 700; text-align: center; font-size: 18px; }
+        .age-progress { height: 4px; background: var(--accent); width: 0; transition: width .1s linear; }
+        .consent { font-size: 15px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 16px 0 0; }
+        .consent ul { margin: 6px 0 0; padding-left: 18px; }
+        .consent strong { color: var(--ink); }
+        input[type=file] { width: 100%; margin-top: 6px; font-size: 15px; }
+        [hidden] { display: none !important; }
+    </style>
+}
+
+<h1>Check your age</h1>
+
+@if (check.Status == AgeCheckStatus.Passed)
+{
+    <p class="notice ok">@(check.Message ?? "You've confirmed you're 18 or over. Thanks!")</p>
+    <a class="button" href="@Model.ContinueUrl">Continue</a>
+}
+else if (!check.CanUseFaceCheck && !check.CanUseDocumentCheck)
+{
+    <p class="lead">You must be 18 or over to post, comment or react on Bad Jockeys.</p>
+    @if (Model.Error is not null)
+    {
+        <p class="notice error" role="alert">@Model.Error</p>
+    }
+    <p class="notice" role="status">@(check.Message ?? (check.AttemptsLeft == 0
+        ? "You've used all your tries for today. Please come back tomorrow."
+        : "We can't check your age again. If you think we've got this wrong, please contact support."))</p>
+    <a class="button secondary" href="@Model.ContinueUrl">Continue to Bad Jockeys</a>
+}
+else if (Model.ShowDocument)
+{
+    <p class="lead">Use a photo of your passport, driving licence or other government photo ID to confirm you're 18 or over.</p>
+    @if (Model.Error is not null)
+    {
+        <p class="notice error" role="alert">@Model.Error</p>
+    }
+    else if (check.Message is not null)
+    {
+        <p class="notice" role="status">@check.Message</p>
+    }
+
+    <div class="consent">
+        <strong>What we check, and what we keep</strong>
+        <ul>
+            <li>We read the date of birth on your ID to confirm you're 18 or over.</li>
+            <li>The photo is deleted straight after the check. It's never saved.</li>
+            <li>We only keep whether you passed, how you checked, and the date.</li>
+        </ul>
+    </div>
+
+    <form method="post" asp-page-handler="Document" enctype="multipart/form-data">
+        <input type="hidden" asp-for="ReturnUrl" />
+        <label for="image">Photo of your ID</label>
+        <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment" required />
+        <label class="check"><input type="checkbox" required /> I agree to my ID being checked as described above.</label>
+        <button type="submit">Check my ID</button>
+    </form>
+
+    <div class="links">
+        @if (check.CanUseFaceCheck)
+        {
+            <a asp-page="./CheckAge" asp-route-returnUrl="@Model.ReturnUrl">Use a selfie video instead</a>
+        }
+        <a href="@Model.ContinueUrl">Skip for now (you can browse, but not post or comment)</a>
+    </div>
+    <p class="lead" style="margin-top:12px;font-size:14px">@check.AttemptsLeft @(check.AttemptsLeft == 1 ? "try" : "tries") left today.</p>
+}
+else
+{
+    <p class="lead">Bad Jockeys is for people aged 18 and over. Record a short selfie video, about 4 seconds, turning your head left and then right.</p>
+
+    <div class="consent" id="consent-text">
+        <strong>What we check, and what we keep</strong>
+        <ul>
+            <li>A check on our own servers that it's a real person on camera, not a photo.</li>
+            <li>An estimate of your age from your face. If it says you're under @Model.ChallengeAge, we'll ask for a photo of your ID instead.</li>
+            <li>The video is deleted straight after the check. It's never saved, and no sound is recorded.</li>
+            <li>We only keep whether you passed, how you checked, and the date.</li>
+        </ul>
+    </div>
+
+    <form id="age-form" method="post" asp-page-handler="Video">
+        <label class="check"><input id="consent" type="checkbox" /> I agree to my selfie video being checked as described above.</label>
+    </form>
+
+    <p class="notice" id="age-status" role="status" aria-live="polite" hidden="@(check.Message is null)">@check.Message</p>
+
+    <div class="age-camera" id="age-camera">
+        <video id="age-preview" autoplay muted playsinline></video>
+        <div class="oval"></div>
+        <div class="age-prompt" id="age-prompt">Look straight at the camera</div>
+        <div class="age-progress" id="age-progress"></div>
+    </div>
+
+    <button type="button" id="age-start" disabled>Start camera</button>
+    <a class="button" id="age-continue" href="@Model.ContinueUrl" hidden>Continue</a>
+
+    <div class="links">
+        <a id="age-document" asp-page="./CheckAge" asp-route-method="document" asp-route-returnUrl="@Model.ReturnUrl">Use photo ID instead</a>
+        <a id="age-skip" href="@Model.ContinueUrl">Skip for now (you can browse, but not post or comment)</a>
+    </div>
+    <p class="lead" style="margin-top:12px;font-size:14px" id="age-attempts">@check.AttemptsLeft @(check.AttemptsLeft == 1 ? "try" : "tries") left today.</p>
+}
+
+@section Scripts {
+<script>
+(function () {
+    const form = document.getElementById('age-form');
+    if (!form) return;
+
+    const consent = document.getElementById('consent');
+    const start = document.getElementById('age-start');
+    const camera = document.getElementById('age-camera');
+    const preview = document.getElementById('age-preview');
+    const prompt = document.getElementById('age-prompt');
+    const progress = document.getElementById('age-progress');
+    const status = document.getElementById('age-status');
+    const continueLink = document.getElementById('age-continue');
+    const documentLink = document.getElementById('age-document');
+    const skipLink = document.getElementById('age-skip');
+    const attempts = document.getElementById('age-attempts');
+    const token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+    const durationMs = 4000;
+    const steps = [
+        { at: 0, text: 'Look straight at the camera' },
+        { at: 1000, text: 'Slowly turn your head to the left' },
+        { at: 2400, text: 'Now slowly turn to the right' },
+    ];
+    let stream = null;
+
+    function say(text) { status.textContent = text; status.hidden = !text; }
+
+    function pickType() {
+        const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+        return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    }
+
+    function stopCamera() {
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        preview.srcObject = null;
+    }
+
+    consent.addEventListener('change', () => { start.disabled = !consent.checked; });
+
+    async function openCamera() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            say('Your browser can\'t record video here. Please use photo ID instead.');
+            return;
+        }
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        } catch (e) {
+            say('We couldn\'t use your camera. Allow camera access and try again, or use photo ID instead.');
+            return;
+        }
+        preview.srcObject = stream;
+        camera.style.display = 'block';
+        prompt.textContent = 'Fit your face in the oval, then press Record';
+        start.textContent = 'Record (about 4 seconds)';
+        start.onclick = record;
+        say('');
+    }
+
+    function record() {
+        const type = pickType();
+        const recorder = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = () => upload(new Blob(chunks, { type: (recorder.mimeType || type || 'video/webm') }));
+        start.disabled = true;
+        consent.disabled = true;
+        const began = performance.now();
+        recorder.start(250);
+        const timer = setInterval(() => {
+            const elapsed = performance.now() - began;
+            progress.style.width = Math.min(100, elapsed / durationMs * 100) + '%';
+            const step = steps.filter(s => elapsed >= s.at).pop();
+            if (step) prompt.textContent = step.text;
+            if (elapsed >= durationMs) { clearInterval(timer); recorder.stop(); }
+        }, 100);
+    }
+
+    async function upload(blob) {
+        stopCamera();
+        camera.style.display = 'none';
+        progress.style.width = '0';
+        say('Checking… this takes a few seconds.');
+        const data = new FormData();
+        data.append('video', blob, blob.type.indexOf('mp4') >= 0 ? 'selfie.mp4' : 'selfie.webm');
+        let result;
+        try {
+            const response = await fetch(form.action, { method: 'POST', body: data, headers: { 'RequestVerificationToken': token }, credentials: 'same-origin' });
+            result = await response.json();
+        } catch (e) {
+            result = { message: 'Something went wrong sending the video. Please try again.', canUseFaceCheck: true, canUseDocumentCheck: true };
+        }
+        say(result.message || '');
+        if (typeof result.attemptsLeft === 'number') {
+            attempts.textContent = result.attemptsLeft + (result.attemptsLeft === 1 ? ' try' : ' tries') + ' left today.';
+        }
+        if (result.passed) {
+            status.classList.add('ok');
+            start.hidden = true;
+            documentLink.hidden = true;
+            skipLink.hidden = true;
+            attempts.hidden = true;
+            continueLink.hidden = false;
+            return;
+        }
+        documentLink.hidden = result.canUseDocumentCheck === false;
+        if (result.canUseFaceCheck === false) {
+            start.hidden = true;
+            return;
+        }
+        start.disabled = false;
+        consent.disabled = false;
+        start.textContent = 'Try again';
+        start.onclick = openCamera;
+    }
+
+    start.onclick = openCamera;
+})();
+</script>
+}

@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
 using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Idsrv.Host.Services.SignUp;
 using BJK.Modules.User.UseCases.Add;
 using ValidationException = FluentValidation.ValidationException;
 using MediatR;
@@ -18,7 +19,8 @@ public sealed class RegisterModel(
     SignInManager<BjkIdentityUser> signIn,
     UserManager<BjkIdentityUser> users,
     ICaptchaVerifier captcha,
-    LoginFlow flow)
+    LoginFlow flow,
+    SignUpCountryPolicy countries)
     : PageModel
 {
     [BindProperty]
@@ -29,13 +31,25 @@ public sealed class RegisterModel(
 
     public IReadOnlyList<AuthenticationScheme> Providers { get; private set; } = [];
 
-    public async Task OnGetAsync()
+    public async Task<IActionResult> OnGetAsync()
     {
+        // New accounts are UK-only for now: say so before anyone fills in the form.
+        if (!countries.Check(Request).Allowed)
+        {
+            return RedirectToPage("./SignUpUnavailable");
+        }
+
         Providers = (await signIn.GetExternalAuthenticationSchemesAsync()).ToList();
+        return Page();
     }
 
     public async Task<IActionResult> OnPostAsync()
     {
+        if (!countries.Check(Request).Allowed)
+        {
+            return RedirectToPage("./SignUpUnavailable");
+        }
+
         Providers = (await signIn.GetExternalAuthenticationSchemesAsync()).ToList();
         if (!ModelState.IsValid || !await Request.CaptchaPassedAsync(captcha, ModelState))
         {
@@ -60,7 +74,7 @@ public sealed class RegisterModel(
 
         await signIn.SignInAsync(user, isPersistent: false);
         TempData["Notice"] = "Account created. We've emailed you a link to confirm your address.";
-        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this));
+        return await flow.CompleteAsync(user, ReturnUrl, new PageModelUrls(this), newAccount: true);
     }
 
     public sealed class InputModel

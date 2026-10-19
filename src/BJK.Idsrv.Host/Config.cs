@@ -1,4 +1,5 @@
 using BJK.Modules.User;
+using BJK.Modules.User.Contracts;
 using Duende.IdentityServer;
 using Duende.IdentityServer.Models;
 
@@ -12,6 +13,7 @@ public static class Scopes
     public const string Media = "bjk.media";
     public const string MediaManage = "bjk.media.manage";
     public const string Profiles = "bjk.profiles";
+    public const string ProfilesManage = "bjk.profiles.manage";
     public const string Posts = "bjk.posts";
     public const string PostsManage = "bjk.posts.manage";
 
@@ -19,7 +21,7 @@ public static class Scopes
     public static readonly string[] User = [Users, Media, Profiles, Posts];
 
     /// <summary>What the back-office asks for on top: moderation. Only counts for Moderators and Admins with two-factor sign-in.</summary>
-    public static readonly string[] Moderation = [UsersManage, MediaManage, PostsManage];
+    public static readonly string[] Moderation = [UsersManage, MediaManage, ProfilesManage, PostsManage];
 }
 
 /// <summary>Redirect addresses and secret for one app, from configuration (section <c>Clients:Web</c> and so on).</summary>
@@ -45,8 +47,11 @@ public static class Config
     public const string MobileClientId = "bjk-mobile";
     public const string BackofficeClientId = "bjk-backoffice";
 
-    /// <summary>Claims every API needs about the user, so they're copied into access tokens.</summary>
-    private static readonly string[] ApiUserClaims = ["role", "email_verified"];
+    /// <summary>
+    /// Claims every API needs about the user, so they're copied into access tokens. age_verified is only present
+    /// (as "true") once the account has passed the age check (see AgeAwareProfileService).
+    /// </summary>
+    private static readonly string[] ApiUserClaims = ["role", "email_verified", AgeVerificationClaims.AgeVerified];
 
     public static IEnumerable<IdentityResource> IdentityResources =>
     [
@@ -63,6 +68,7 @@ public static class Config
         new(Scopes.Media, "Upload and view photos and videos"),
         new(Scopes.MediaManage, "Manage anyone's photos and videos (staff)"),
         new(Scopes.Profiles, "Your public profile"),
+        new(Scopes.ProfilesManage, "Moderate public profiles (staff)"),
         new(Scopes.Posts, "Post, react, comment and report"),
         new(Scopes.PostsManage, "Moderate posts, comments and reports (staff)"),
     ];
@@ -75,8 +81,10 @@ public static class Config
     [
         new("bjk-api", "Bad Jockeys API")
         {
-            Scopes = { Scopes.Media, Scopes.MediaManage, Scopes.Profiles, Scopes.Posts, Scopes.PostsManage },
-            UserClaims = [.. ApiUserClaims],
+            Scopes = { Scopes.Media, Scopes.MediaManage, Scopes.Profiles, Scopes.ProfilesManage, Scopes.Posts, Scopes.PostsManage },
+
+            // The core API also gets the email address, so it can send report and appeal acknowledgements.
+            UserClaims = [.. ApiUserClaims, "email"],
         },
         new("bjk-identity", "Bad Jockeys accounts API")
         {

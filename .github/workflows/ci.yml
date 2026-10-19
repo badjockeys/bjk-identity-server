@@ -78,15 +78,40 @@ jobs:
       - name: Build
         run: dotnet build BJK.Idsrv.slnx --configuration Release --no-restore
 
+      # For the age check's liveness tests against the real YuNet model: ffmpeg, the OpenCV Zoo model (MIT) and a
+      # sample photo from OpenCV. If a download fails, those tests are skipped rather than failing the build.
+      - name: Fetch ffmpeg and the YuNet model for the liveness tests
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          mkdir -p "$RUNNER_TEMP/yunet"
+          curl -fsSL -o "$RUNNER_TEMP/yunet/face_detection_yunet_2023mar.onnx" \
+            https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+          curl -fsSL -o "$RUNNER_TEMP/yunet/face.jpg" https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg
+          echo "YUNET_MODEL_PATH=$RUNNER_TEMP/yunet/face_detection_yunet_2023mar.onnx" >> "$GITHUB_ENV"
+          echo "YUNET_TEST_IMAGE=$RUNNER_TEMP/yunet/face.jpg" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: |
+          set -o pipefail
+          if ! dotnet test --solution BJK.Idsrv.slnx --configuration Release --no-build 2>&1 | tee test-output.txt; then
+            grep -iE "error|fail|exception" test-output.txt | head -40 | sed 's/^/::error::/'
+            exit 1
+          fi
+
       # Fails if an entity or configuration changed without a matching migration.
       - name: Check migrations are up to date
         env:
           ASPNETCORE_ENVIRONMENT: Development
         run: |
+          set -o pipefail
           for context in BjkIdentityDbContext PersistedGrantDbContext; do
-            dotnet ef migrations has-pending-model-changes \
+            if ! dotnet ef migrations has-pending-model-changes \
               --project src/BJK.Idsrv.Host --context "$context" \
-              --configuration Release --no-build
+              --configuration Release --no-build 2>&1 | tee ef-output.txt; then
+              tail -15 ef-output.txt | sed 's/^/::error::/'
+              exit 1
+            fi
           done
 
       - name: End-to-end smoke test

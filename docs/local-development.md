@@ -79,6 +79,8 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Messaging:ConnectionUri` | The Docker RabbitMQ, with your password from `.env` |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
+| `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
+| `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age check below) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
@@ -135,6 +137,7 @@ These are the pages the web app, phone app and back-office send people to; none 
 | `/Account/ForgotPassword`, `/Account/ResetPassword` | Forgot password |
 | `/Account/ConfirmEmail` | Where the confirmation email's link lands |
 | `/Account/Reactivate` | Bring back a deactivated account |
+| `/Account/CheckAge` | Check your age: selfie video, or photo ID (shown straight after sign-up) |
 | `/Manage` | Account overview, two-step, password, social sign-in, deactivate |
 
 ### Staff roles
@@ -158,6 +161,101 @@ Each provider switches on when its keys are in your user secrets. Every provider
 
 A first social sign-in creates an account with the provider's email (already confirmed). If an account with that email already exists, the two are never joined automatically; the person signs in with their password and links the provider on `/Manage`.
 
+### UK-only sign-up
+
+At launch, new accounts can only be created from the UK. Anyone can still watch posts, and existing accounts sign in from anywhere (people travel). The rule covers the sign-up page, a first Google, Apple or Facebook sign-in, and `POST /api/users`.
+
+In the deployed environments Cloudflare adds a `CF-IPCountry` header with the visitor's country, and `SignUp:TrustCloudflareCountryHeader` is `true`. A country outside `SignUp:AllowedCountries` (default `["GB"]`), Cloudflare's "unknown" (`XX`) or Tor (`T1`), or no header at all, means no account:
+- the pages show `/Account/SignUpUnavailable` ("Bad Jockeys is only open for new accounts in the UK for now. You can still watch posts.");
+- the API returns 403 with that message.
+
+The log records only the country code and the outcome, e.g. `Sign-up country check: FR refused`, never the IP address.
+
+Locally there's no Cloudflare, so the header isn't trusted and sign-up is allowed. To see the refusal, pretend to be elsewhere:
+
+```bash
+dotnet user-secrets set "SignUp:DevelopmentCountry" "FR" --project src/BJK.Idsrv.Host   # refused
+dotnet user-secrets remove "SignUp:DevelopmentCountry" --project src/BJK.Idsrv.Host      # allowed again
+```
+
+Or trust the header and send it yourself (e.g. `CF-IPCountry: FR` in the `.http` file):
+
+```bash
+dotnet user-secrets set "SignUp:TrustCloudflareCountryHeader" "true" --project src/BJK.Idsrv.Host
+```
+
+Outside Development the app refuses to start unless `SignUp:TrustCloudflareCountryHeader` is `true`. Without Cloudflare in front, anyone could fake the header. `SignUp:DevelopmentCountry` is refused there too.
+
+### Age check
+
+Bad Jockeys is for people aged 18 and over. Straight after sign-up (email or Google/Apple/Facebook), people land on **Check your age** (`/Account/CheckAge`):
+
+1. The page explains what's checked and kept, and asks for consent.
+2. It records a 4-second selfie video in the browser, prompting the person to look ahead, turn left, then turn right. No sound is recorded.
+3. It uploads the video.
+4. "Use photo ID instead" uploads a photo of an ID.
+
+Anyone can **skip** it and still sign in. Their tokens just don't carry `age_verified` until they pass, and the web app prompts them. `/Manage` shows the status and links back to the page.
+
+The rules (from the User module):
+- Estimated **25 or over** passes.
+- **18 to 24** needs photo ID.
+- If the estimate is **unclear** or the liveness check fails, the person tries again or uses photo ID.
+- **Clearly under 18** fails, with photo ID still offered. Under 18 on photo ID is final until an admin resets it.
+- **3 tries** a day.
+
+The video and photo stay in memory and are wiped after the check. Only the outcome is stored, in `users.Accounts` (`AgeCheckStatus`, `AgeCheckMethod`, `AgeCheckResult`, `AgeCheckProvider`, `AgeCheckRecordedAt`).
+
+**Locally** the template selects the `Development` providers:
+- the liveness check accepts any video;
+- the age estimate and the photo ID both say 30.
+
+So you can test without a vendor. On a laptop the page works on `https://localhost:5001`, since browsers only allow the camera over HTTPS or on localhost.
+
+To try each path, change the answers and restart:
+
+```bash
+dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "20" --project src/BJK.Idsrv.Host   # photo ID needed
+dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "15" --project src/BJK.Idsrv.Host   # under 18
+dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "0" --project src/BJK.Idsrv.Host    # can't tell
+dotnet user-secrets set "AgeAssurance:Document:Development:Age" "16" --project src/BJK.Idsrv.Host    # ID says under 18
+dotnet user-secrets set "AgeAssurance:Liveness:Development:Pass" "false" --project src/BJK.Idsrv.Host # liveness fails
+```
+
+To start again, reset the check as an admin (`POST /api/admin/users/{id}/age-check/reset`), or in SQL:
+
+```sql
+UPDATE users.Accounts SET AgeCheckStatus = 'NotChecked', AgeCheckMethod = NULL, AgeCheckResult = NULL, AgeCheckAttempts = 0, AgeCheckAttemptsSince = NULL WHERE Id = '<user id>';
+```
+
+Then sign in again (or use the `.http` file's steps). The access token, ID token and userinfo carry `"age_verified": "true"` once passed, and nothing before.
+
+**Trying the real liveness check (YuNet).** It runs on our servers:
+1. ffmpeg samples frames from the video.
+2. OpenCV Zoo's YuNet face detector (MIT licence) runs through ONNX Runtime.
+3. The check looks for one face in most frames, turning clearly one way and then the other.
+
+To use it locally:
+
+```bash
+brew install ffmpeg      # or apt-get install ffmpeg
+mkdir -p ~/bjk-models && curl -L -o ~/bjk-models/face_detection_yunet_2023mar.onnx \
+  https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+dotnet user-secrets set "AgeAssurance:Liveness:Provider" "YuNet" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "AgeAssurance:Liveness:YuNet:ModelPath" "$HOME/bjk-models/face_detection_yunet_2023mar.onnx" --project src/BJK.Idsrv.Host
+```
+
+It's a basic check. It stops a photo held up to the camera, but not a replayed video or a mask. A passive anti-spoofing model (for example MiniFASNet, Apache-2.0) is the next step. The app won't start with `YuNet` selected and no model file.
+
+**A real age estimator** plugs in with `AgeAssurance:Estimator:Provider=Http`. The generic adapter:
+- POSTs the video as multipart/form-data (`VideoField`, default `video`);
+- sends `ApiKey` in `ApiKeyHeader` (default `Authorization: Bearer …`);
+- reads the age from the JSON response at `AgePath` (and optionally a margin of error at `UncertaintyPath`).
+
+Set `AgeAssurance:Estimator:Http:Endpoint` to the vendor's https address. A vendor with a different API gets its own `IAgeEstimator`. No photo-ID vendor is wired up yet; that's a new `IDocumentAgeCheck`.
+
+**Outside Development**, the app refuses to start with any `Development` age check provider.
+
 ### The API walkthrough
 
 Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to bottom. It works in Rider, Visual Studio, and VS Code with the REST Client extension.
@@ -168,6 +266,7 @@ Open `src/BJK.Idsrv.Host/BJK.Idsrv.Host.http` and send the requests from top to 
 | Sign in (password grant) | Token issued; signing key created on first use | `idsrv.Keys` |
 | My account | Email (from the sign-in account) and status | |
 | Download my data | JSON file of what the identity server holds about you | |
+| Age check | Status, then a selfie upload (any file works with the Development providers); the next token carries `age_verified` | `users.Accounts.AgeCheckStatus` |
 | List (admin token) | All accounts, optionally by status | |
 | Forgot password | Reset email written to the app console (not sent yet) | |
 | Confirm reset | Password changed | `auth.AspNetUsers.PasswordHash` |
@@ -248,7 +347,7 @@ The real apps use these clients (authorization code + PKCE, refresh tokens), con
 | `bjk-mobile` | The phone apps, through the system browser | No secret (public client); `badjockeys://auth/callback` |
 | `bjk-backoffice` | Moderators and admins | Has a secret; adds the `.manage` scopes; non-staff are turned away at sign-in; 10-minute access tokens, 8-hour sessions |
 
-Access tokens for the core API have the audience `bjk-api` and carry `role` and `email_verified`.
+Access tokens for the core API have the audience `bjk-api` and carry `role`, `email_verified` and `email` (for report and appeal acknowledgements), plus `age_verified` (`"true"`) once the account has passed the age check.
 
 ## Database changes
 

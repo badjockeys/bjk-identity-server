@@ -21,6 +21,9 @@ GET {{host}}/.well-known/openid-configuration
 POST {{host}}/api/users
 Content-Type: application/json
 X-Captcha-Token: {{captcha}}
+# Sign-up is UK-only. Cloudflare adds this header in the deployed environments; locally it's only used if
+# SignUp:TrustCloudflareCountryHeader is true. Try FR to see the 403.
+CF-IPCountry: GB
 
 {
   "email": "{{email}}",
@@ -41,6 +44,43 @@ Authorization: Bearer {{userToken.response.body.$.access_token}}
 ### 4. Download my data (what the identity server holds about me), as a JSON file
 GET {{host}}/api/me/data-export
 Authorization: Bearer {{userToken.response.body.$.access_token}}
+
+### 4a. My age check: NotChecked, 3 tries left. (Step 2's token has no age_verified claim yet.)
+GET {{host}}/api/users/me/age-check
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+
+### 4b. Check my age with a selfie video. With the Development providers any file passes as the video and the
+# "estimate" is AgeAssurance:Estimator:Development:Age (30 = pass, 20 = photo ID needed, 15 = under 18).
+# In the browser, /Account/CheckAge records a real one.
+POST {{host}}/api/users/me/age-check/face
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+Content-Type: multipart/form-data; boundary=bjk-boundary
+
+--bjk-boundary
+Content-Disposition: form-data; name="video"; filename="selfie.webm"
+Content-Type: video/webm
+
+< ./appsettings.json
+--bjk-boundary--
+
+### 4c. Or with a photo of an ID (after "photo ID needed", or instead of the selfie)
+POST {{host}}/api/users/me/age-check/document
+Authorization: Bearer {{userToken.response.body.$.access_token}}
+Content-Type: multipart/form-data; boundary=bjk-boundary
+
+--bjk-boundary
+Content-Disposition: form-data; name="image"; filename="id.jpg"
+Content-Type: image/jpeg
+
+< ./appsettings.json
+--bjk-boundary--
+
+### 4d. Sign in again: once passed, the access token carries "age_verified": "true" (paste it into jwt.io to see)
+# @name userToken2
+POST {{host}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=bjk-local-user&client_secret=local-user-secret&scope=openid profile email bjk.users&username={{email}}&password={{password}}
 
 ### 5. Admin token (local test client, client credentials)
 # @name adminToken
@@ -98,6 +138,14 @@ X-Captcha-Token: {{captcha}}
   "email": "{{email}}",
   "password": "{{password}}"
 }
+
+### 11a. Admin: see an account's age check (status only, never the video) and reset it so the user takes it again
+GET {{host}}/api/admin/users/{{register.response.body.$.id}}
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
+
+###
+POST {{host}}/api/admin/users/{{register.response.body.$.id}}/age-check/reset
+Authorization: Bearer {{adminToken.response.body.$.access_token}}
 
 ### 12. Admin: deactivate, reactivate, or permanently delete now (skips the 90 days)
 POST {{host}}/api/users/{{register.response.body.$.id}}/deactivate
