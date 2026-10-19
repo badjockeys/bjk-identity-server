@@ -33,27 +33,24 @@ The User module comes from the private `badjockeys` package feed on GitHub Packa
 
 ## 3. Start SQL Server
 
-Choose a password for the local SQL Server's `sa` account. It goes in a `.env` file at the repo root. The file is git-ignored, so it never reaches GitHub:
+SQL Server runs in Docker from **bjk-core**, so clone that next to this repo. Its `docker-compose.yml` starts SQL Server and the local file storage together, as one Docker group called `bad-jockeys`. The `sa` password goes in `bjk-core/.env` (git-ignored, so it never reaches GitHub). bjk-core's setup script creates it for you; by hand:
 
 ```bash
+cd ../bjk-core
 cp .env.example .env
 # edit .env: BJK_SQL_PASSWORD=<8+ characters with upper case, lower case, a digit and a symbol>
+docker compose up -d --wait      # returns once SQL Server is healthy (about 30 seconds the first time)
 ```
 
-Then start it:
+This runs SQL Server 2022 on `localhost,1433`. Both this server's `idsrv` database and bjk-core's `badjockeys` database live there, and `badjockeys` also holds the message queues (schema `messaging`), so there's no separate message broker. The data lives in a Docker volume, so it's still there after `docker compose stop` or a reboot.
 
-```bash
-docker compose up -d
-docker compose ps        # wait until it shows "healthy" (about 30 seconds)
-```
-
-This runs SQL Server 2022 on `localhost,1433`. bjk-core uses the same container: its `badjockeys` database also holds the message queues (schema `messaging`), so there's no separate message broker. The data lives in a Docker volume, so it's still there after `docker compose stop` or a reboot.
-
-| Command | Does |
+| Command (in bjk-core) | Does |
 |---|---|
 | `docker compose stop` | Stops it and keeps the data |
-| `docker compose up -d` | Starts them again |
-| `docker compose down -v` | Removes the containers **and the data**, so the next app start builds a fresh database |
+| `docker compose up -d --wait` | Starts it again |
+| `docker compose down -v` | Removes the containers **and all local data** (databases and stored files), so the next app start builds fresh databases |
+
+> SQL Server used to run from a `docker-compose.yml` in this repo, with the password in this repo's `.env`. bjk-core's scripts remove the old Docker group and carry that password over to `bjk-core/.env`, so your user secrets keep working.
 
 ## 4. Load your settings into user secrets
 
@@ -63,14 +60,14 @@ No environment settings live in the repo's appsettings files. Locally they come 
 
 ```bash
 cp user-secrets.template.json user-secrets.json      # user-secrets.json is git-ignored
-# edit user-secrets.json: put the password from your .env into the connection string
+# edit user-secrets.json: put the password from bjk-core/.env into both connection strings
 dotnet user-secrets set --project src/BJK.Idsrv.Host < user-secrets.json
 dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all there
 ```
 
 | Setting | Local value |
 |---|---|
-| `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `.env` |
+| `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `bjk-core/.env` |
 | `Email:Provider` | `Log`: emails go to the console instead of being sent (see Email below). Leave the SendGrid placeholder unless you switch provider. |
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
@@ -302,7 +299,7 @@ SELECT id, visible, deliverycount, CAST(body AS varchar(max)) AS event FROM [mes
 UPDATE users.Accounts SET DeletionDueAt = DATEADD(minute, -1, SYSDATETIMEOFFSET()) WHERE Id = '<user id>';
 ```
 
-To look at the data, connect your SQL tool to server `localhost,1433`, user `sa`, the password from your `.env`, and tick "trust server certificate". Handy queries:
+To look at the data, connect your SQL tool to server `localhost,1433`, user `sa`, the password from `bjk-core/.env`, and tick "trust server certificate". Handy queries:
 
 ```sql
 USE idsrv;
@@ -315,7 +312,7 @@ SELECT * FROM users.__EFMigrationsHistory;
 Without a SQL tool, you can run the same queries straight in the container:
 
 ```bash
-docker exec -it bjk-sql bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d idsrv -Q "SELECT Id, Status, DeletionDueAt FROM users.Accounts"'
+docker exec -it bad-jockeys-sql-server bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d idsrv -Q "SELECT Id, Status, DeletionDueAt FROM users.Accounts"'
 ```
 
 ### Email
@@ -384,12 +381,12 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <Name> --project src
 
 - **`Messaging:ConnectionStringName must name the connection string for bjk-core's app database`**: add `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` and `Messaging:CreateTables` from the template to your user secrets (step 4).
 - **`No queue subscribes to 'bjk.users' yet`** in the log: bjk-core hasn't started against this SQL Server yet. Events wait in `users.Outbox` until it has.
-- **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d` to start from an empty database.
+- **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d --wait` in bjk-core to start from empty databases.
 - **`NU1301` / `401 Unauthorized` on restore**: the NuGet token variable isn't set in this terminal, or has expired (step 2). Check with `echo $NuGetPackageSourceCredentials_badjockeys`.
 - **`Connection string 'IdentityDatabase' is not configured`** or **`Captcha:TurnstileSecretKey is required`**: your user secrets aren't loaded (step 4), or the app isn't running in Development. The `https` launch profile sets Development.
-- **`Login failed for user 'sa'`**: the password in your user secret doesn't match `.env`. If you changed `.env` after the container was first created, SQL Server still has the old password: run `docker compose down -v` (this deletes the local data) and `docker compose up -d`.
-- **`A network-related or instance-specific error`**: SQL Server isn't running or isn't healthy yet. Check `docker compose ps` and `docker compose logs sql`.
-- **`docker compose up` says "Set BJK_SQL_PASSWORD in .env"**: create `.env` from `.env.example` (step 3).
-- **The SQL container keeps restarting on an Apple Silicon Mac**: turn on Rosetta emulation in Docker Desktop (step 1), then `docker compose up -d` again.
-- **Port 1433 is already in use**: another SQL Server is running. Stop it, or change the left-hand port in `docker-compose.yml` (e.g. `"14330:1433"`) and use `Server=localhost,14330` in your user secret.
+- **`Login failed for user 'sa'`**: the password in your user secret doesn't match `bjk-core/.env`. If you changed `.env` after the container was first created, SQL Server still has the old password: in bjk-core run `docker compose down -v` (this deletes the local data) and `docker compose up -d --wait`.
+- **`A network-related or instance-specific error`**: SQL Server isn't running or isn't healthy yet. Check `docker compose ps` and `docker compose logs sql` in bjk-core.
+- **`docker compose up` says "Set BJK_SQL_PASSWORD in bjk-core/.env"**: create `bjk-core/.env` from its `.env.example` (step 3).
+- **The SQL container keeps restarting on an Apple Silicon Mac**: turn on Rosetta emulation in Docker Desktop (step 1), then `docker compose up -d --wait` in bjk-core again.
+- **Port 1433 is already in use**: another SQL Server is running. Stop it, or change the left-hand port in bjk-core's `docker-compose.yml` (e.g. `"14330:1433"`) and use `Server=localhost,14330` in your user secret.
 - **Startup stops with "pending migrations would remove data"**: see Database changes above.
