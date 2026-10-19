@@ -442,6 +442,34 @@ sql "UPDATE users.Accounts SET DateOfBirth = '$TEEN_DOB' WHERE Id = '$USER4_ID'"
 user_token "$EMAIL4" "$PASSWORD"
 expect 200 "it gets tokens again once the date of birth is recorded"
 
+# ---------- two-step secrets are encrypted at rest ----------
+
+# The 15-year-old turns on an authenticator app through the real page: the key is shown, a code from it is accepted,
+# and the stored authenticator key and recovery codes are encrypted (dp1: + Data Protection), never plain text.
+rm -f cookies.txt
+curl -s -c cookies.txt -b cookies.txt "$BASE_URL/Account/Login" -o login.html
+XSRF=$(grep -o 'name="__RequestVerificationToken" type="hidden" value="[^"]*"' login.html | head -1 | sed 's/.*value="//; s/"$//')
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -c cookies.txt -b cookies.txt -X POST "$BASE_URL/Account/Login" \
+  --data-urlencode "__RequestVerificationToken=$XSRF" --data-urlencode "Input.Email=$EMAIL4" --data-urlencode "Input.Password=$PASSWORD")
+[[ "$STATUS" =~ ^30[237]$ ]] || fail "The 15-year-old couldn't sign in on the sign-in page: $STATUS"
+curl -s -c cookies.txt -b cookies.txt "$BASE_URL/Manage/EnableAuthenticator" -o authenticator.html
+SHARED_KEY=$(grep -o '<span class="key">[^<]*</span>' authenticator.html | sed 's/<[^>]*>//g' | tr -d ' ')
+[ -n "$SHARED_KEY" ] || fail "The authenticator page shows no key."
+XSRF=$(grep -o 'name="__RequestVerificationToken" type="hidden" value="[^"]*"' authenticator.html | head -1 | sed 's/.*value="//; s/"$//')
+TOTP=$(python3 -c 'import base64,hmac,hashlib,struct,sys,time
+k=sys.argv[1].upper(); k=base64.b32decode(k+"="*(-len(k)%8))
+h=hmac.new(k,struct.pack(">Q",int(time.time())//30),hashlib.sha1).digest(); o=h[-1]&15
+print("%06d"%((struct.unpack(">I",h[o:o+4])[0]&0x7fffffff)%1000000))' "$SHARED_KEY")
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt -c cookies.txt -b cookies.txt -X POST "$BASE_URL/Manage/EnableAuthenticator" \
+  --data-urlencode "__RequestVerificationToken=$XSRF" --data-urlencode "Code=$TOTP")
+LOCATION=$(grep -i '^location:' headers.txt | sed 's/^[Ll]ocation: *//' | tr -d '\r' || true)
+[[ "$STATUS" =~ ^30[237]$ ]] && grep -q "ShowRecoveryCodes" <<< "$LOCATION" || fail "The authenticator code wasn't accepted: $STATUS $LOCATION"
+echo "ok  an authenticator app is turned on with a code from its key"
+PASSED+=("authenticator enrolment through the page (302)")
+expect_sql "SELECT CAST(TwoFactorEnabled AS int) FROM auth.AspNetUsers WHERE Id = '$USER4_ID'" 1 "two-step is on for the 15-year-old"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUserTokens WHERE UserId = '$USER4_ID' AND LoginProvider = '[AspNetUserStore]' AND Name IN ('AuthenticatorKey', 'RecoveryCodes') AND Value LIKE 'dp1:%'" 2 "the authenticator key and recovery codes are stored encrypted"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUserTokens WHERE UserId = '$USER4_ID' AND Value LIKE '%$SHARED_KEY%'" 0 "the authenticator key isn't stored in plain text"
+
 # ---------- age check, on demand for sensitive posts (Development providers: every estimate is 30) ----------
 
 # selfie.webm and id-photo.jpg (above) stand in for the video and photo. The Development liveness check accepts any
@@ -625,8 +653,15 @@ expect_sql "SELECT CASE WHEN COUNT(*) > 0 THEN 'yes' ELSE 'no' END FROM idsrv.Ke
 stop_app
 # Pretend user 2's 90 days are up.
 sql "UPDATE users.Accounts SET DeletionDueAt = DATEADD(minute, -1, SYSDATETIMEOFFSET()) WHERE Id = '$USER2_ID'" > /dev/null
+# A two-step secret stored in plain text, as before encryption at rest: the restart encrypts it.
+sql "INSERT INTO auth.AspNetUserTokens (UserId, LoginProvider, Name, Value) VALUES ('$USER1_ID', '[AspNetUserStore]', 'AuthenticatorKey', 'PLAINTEXTKEYABCDEFGHIJKLMNOPQRSTU')" > /dev/null
 start_app
 [ "$(grep -c 'database schema is up to date' "$APP_LOG")" -ge 3 ] || fail "Expected all three schemas to be up to date on restart."
+
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUserTokens WHERE LoginProvider = '[AspNetUserStore]' AND Name IN ('AuthenticatorKey', 'RecoveryCodes') AND Value NOT LIKE 'dp1:%'" 0 "startup encrypts two-step secrets stored in plain text"
+expect_sql "SELECT COUNT(*) FROM auth.AspNetUserTokens WHERE Value LIKE '%PLAINTEXTKEY%'" 0 "the plain-text secret is gone"
+grep -q "Encrypted 1 two-step secrets stored before encryption at rest" "$APP_LOG" || fail "Expected the backfill to log how many secrets it encrypted."
+grep -q "Data Protection keys are stored in SQL without encryption at rest" "$APP_LOG" || fail "Expected the local-development warning about unencrypted Data Protection keys."
 
 wait_for_sql "SELECT COUNT(*) FROM users.Accounts WHERE Id = '$USER2_ID'" 0 "retention job deletes user 2's account record"
 expect_sql "SELECT COUNT(*) FROM auth.AspNetUsers WHERE Email = '$EMAIL2'" 0 "and their sign-in account"
@@ -730,6 +765,7 @@ check_refuses_to_start "won't start without bjk-core's messaging connection" "Me
 # The Development age check providers don't check anyone's age, so only Development may use them.
 check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start outside Development without a Key Vault key for the Data Protection keys" "DataProtection:KeyVaultKeyId is required outside Development" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
 
 # ---------- summary ----------
