@@ -80,6 +80,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
 | `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
 | `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age policy below) |
+| `Support:Email` | Where "Contact support" emails go. Default `support@badjockeys.com` |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
@@ -203,6 +204,8 @@ Decided 19 Oct 2026. **Minimum age 13.**
 4. "Use photo ID instead" uploads a photo of an ID.
 
 Posting, commenting and reacting don't need it. `/Manage` shows the status and links to the page.
+
+**Contact support.** Every attempt gets a short reference, such as `AGE-7KQ2MX`, stored with the outcome (`users.Accounts.AgeCheckReference`) and written to the log line that records it. It holds no images or personal details. When the check fails, can't verify the person, or they've used their 3 tries for the day, the page shows the reference. It explains kindly that a person will review it, without promising an outcome. The "Contact support" link opens an email to `Support:Email` (default `support@badjockeys.com`), with the subject "Age check help – AGE-7KQ2MX" and a body naming the account email (the person adds their @handle, which lives in the core profile). Support finds the attempt with `GET /api/admin/users/{id}` (`ageCheck.reference`). This is a mailto link for now; a ticketing system (e.g. Zammad, Freshdesk or Help Scout) replaces it once email passes about 50 tickets a week.
 
 The rules (from the User module):
 - Estimated **25 or over** passes.

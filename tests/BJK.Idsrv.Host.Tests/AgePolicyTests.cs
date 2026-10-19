@@ -87,3 +87,33 @@ public sealed class AgePolicyTests
         Assert.Single(claims);
     }
 }
+
+public sealed class SupportLinkTests
+{
+    [Fact]
+    public void Age_check_support_link_has_the_reference_in_the_subject_and_the_account_email_in_the_body()
+    {
+        var link = BJK.Idsrv.Host.Services.Support.SupportLink.ForAgeCheck("support@badjockeys.com", "AGE-7KQ2MX", "rider@example.com");
+
+        Assert.StartsWith("mailto:support@badjockeys.com?subject=", link);
+        var query = link[(link.IndexOf('?') + 1)..].Split('&').Select(p => p.Split('=', 2)).ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+        Assert.Equal("Age check help – AGE-7KQ2MX", query["subject"]);
+        Assert.Contains("Reference: AGE-7KQ2MX", query["body"]);
+        Assert.Contains("Account email: rider@example.com", query["body"]);
+        Assert.DoesNotContain(" ", link);
+    }
+
+    [Theory]
+    [InlineData("support@badjockeys.com", true)]
+    [InlineData("help@example.org", true)]
+    [InlineData("not an email", false)]
+    [InlineData("", false)]
+    [InlineData("Support <support@badjockeys.com>", false)]
+    public void Support_email_is_checked_at_startup(string email, bool valid)
+    {
+        var result = new BJK.Idsrv.Host.Services.Support.SupportOptionsValidator()
+            .Validate(null, new BJK.Idsrv.Host.Services.Support.SupportOptions { Email = email });
+
+        Assert.Equal(valid, result.Succeeded);
+    }
+}

@@ -15,6 +15,10 @@
         .consent { font-size: 15px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 16px 0 0; }
         .consent ul { margin: 6px 0 0; padding-left: 18px; }
         .consent strong { color: var(--ink); }
+        .support { margin: 20px 0 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+        .support h2 { font-size: 17px; margin: 0 0 6px; }
+        .support p { margin: 6px 0 0; }
+        .support .reference { font-family: ui-monospace, Menlo, monospace; font-weight: 700; letter-spacing: .04em; }
         input[type=file] { width: 100%; margin-top: 6px; font-size: 15px; }
         [hidden] { display: none !important; }
     </style>
@@ -120,6 +124,17 @@ else
     <p class="lead" style="margin-top:12px;font-size:14px" id="age-attempts">@check.AttemptsLeft @(check.AttemptsLeft == 1 ? "try" : "tries") left today.</p>
 }
 
+@if (Model.SupportUrl is not null && check.Reference is not null)
+{
+    <section class="support" id="age-support" aria-labelledby="age-support-title">
+        <h2 id="age-support-title">Think we've got this wrong?</h2>
+        <p>Our support team can help. A person will look at your age check and reply by email. We can't promise a particular outcome, but we'll explain what happens next.</p>
+        <p>Your reference: <span class="reference" id="age-reference">@check.Reference</span></p>
+        <a class="button secondary" id="age-contact-support" href="@Model.SupportUrl">Contact support</a>
+        <p class="hint">Or email <a href="mailto:@Model.SupportEmail">@Model.SupportEmail</a> and quote your reference. Please don't send photos of your ID by email.</p>
+    </section>
+}
+
 @section Scripts {
 <script>
 (function () {
@@ -211,6 +226,11 @@ else
             result = await response.json();
         } catch (e) {
             result = { message: 'Something went wrong sending the video. Please try again.', canUseFaceCheck: true, canUseDocumentCheck: true };
+        }
+        if (result.needsSupport) {
+            // Failed, couldn't verify, or out of tries: reload to show the result with "Contact support".
+            window.location.reload();
+            return;
         }
         say(result.message || '');
         if (typeof result.attemptsLeft === 'number') {
