@@ -49,24 +49,68 @@ public sealed class EncryptionTests
     }
 
     [Theory]
-    [InlineData("Development", "", true)]
-    [InlineData("Production", "", false)]
-    [InlineData("Production", "https://bjk-live-kv.vault.azure.net/keys/dataprotection", true)]
-    [InlineData("Production", "https://bjk-live-kv.vault.azure.net/keys/dataprotection/0123456789abcdef", true)]
-    [InlineData("Production", "http://bjk-live-kv.vault.azure.net/keys/dataprotection", false)]
-    [InlineData("Production", "https://bjk-live-kv.vault.azure.net/secrets/dataprotection", false)]
-    [InlineData("Development", "not a url", false)]
-    public void A_Key_Vault_key_is_required_outside_Development(string environmentName, string keyId, bool valid)
+    [InlineData("Development", false, true)]
+    [InlineData("Production", false, false)]
+    [InlineData("Production", true, true)]
+    public void Outside_development_the_keys_must_be_encrypted_with_a_certificate(string environmentName, bool withCertificate, bool valid)
+    {
+        var result = Validator(environmentName).Validate(
+            null,
+            new DataProtectionSettings { Certificate = withCertificate ? Pfx("secret-pass") : null, CertificatePassword = "secret-pass" });
+
+        Assert.Equal(valid, result.Succeeded);
+        if (!valid)
+        {
+            Assert.Contains("DataProtection:Certificate is required outside Development", result.FailureMessage);
+        }
+    }
+
+    [Fact]
+    public void A_certificate_that_cant_be_read_stops_startup()
+    {
+        var wrongPassword = Validator("Production").Validate(
+            null, new DataProtectionSettings { Certificate = Pfx("secret-pass"), CertificatePassword = "wrong" });
+        var notBase64 = Validator("Production").Validate(null, new DataProtectionSettings { Certificate = "not base64!" });
+        var badPrevious = Validator("Production").Validate(
+            null,
+            new DataProtectionSettings { Certificate = Pfx(null), PreviousCertificates = ["AAAA"] });
+
+        Assert.False(wrongPassword.Succeeded);
+        Assert.False(notBase64.Succeeded);
+        Assert.Contains("isn't base64", notBase64.FailureMessage);
+        Assert.False(badPrevious.Succeeded);
+        Assert.Contains("DataProtection:PreviousCertificates:0", badPrevious.FailureMessage);
+    }
+
+    [Fact]
+    public void Keys_are_stored_encrypted_with_the_certificate()
+    {
+        var pfx = Pfx(null);
+        var protectedKeys = new System.Xml.Linq.XElement("key", "a secret key");
+
+        using var certificate = DataProtectionCertificates.TryLoad(pfx, null, out _)!;
+        var encryptor = new Microsoft.AspNetCore.DataProtection.XmlEncryption.CertificateXmlEncryptor(
+            certificate, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+        var encrypted = encryptor.Encrypt(protectedKeys).EncryptedElement;
+
+        Assert.DoesNotContain("a secret key", encrypted.ToString());
+        Assert.Contains("X509Certificate", encrypted.ToString());
+    }
+
+    private static DataProtectionSettingsValidator Validator(string environmentName)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.EnvironmentName.Returns(environmentName);
+        return new DataProtectionSettingsValidator(environment);
+    }
 
-        var result = new DataProtectionSettingsValidator(environment).Validate(null, new DataProtectionSettings { KeyVaultKeyId = keyId });
-
-        Assert.Equal(valid, result.Succeeded);
-        if (!valid && keyId.Length == 0)
-        {
-            Assert.Contains("DataProtection:KeyVaultKeyId is required outside Development", result.FailureMessage);
-        }
+    /// <summary>A throwaway self-signed certificate as a base64 PFX file.</summary>
+    private static string Pfx(string? password)
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=bjk-dataprotection-test", rsa, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+        return Convert.ToBase64String(certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx, password));
     }
 }

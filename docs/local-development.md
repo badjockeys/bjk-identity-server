@@ -78,7 +78,7 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
 | `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age policy below) |
 | `Support:Email` | Where "Contact support" emails go. Default `support@badjockeys.com` |
-| `DataProtection:*` | Leave empty locally. The Data Protection keys are then stored unencrypted, and the app logs a warning. Deployed environments wrap them with a Key Vault key (see Encryption in the README) |
+| `DataProtection:*` | Leave empty locally. The Data Protection keys are then stored unencrypted, and the app logs a warning. Deployed environments encrypt them with a certificate (see Encryption in the README) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
 
 To change one setting later:
@@ -343,7 +343,7 @@ Locally there's no widget, so your user secrets (from the template) hold Cloudfl
   dotnet user-secrets set "Captcha:TurnstileSecretKey" "1x0000000000000000000000000000000AA" --project src/BJK.Idsrv.Host   # always passes
   ```
 
-In the real apps, the Turnstile widget produces a token just before the request. Tokens are single-use and expire after 5 minutes. In Azure the real secret key goes in Key Vault as `Captcha:TurnstileSecretKey`.
+In the real apps, the Turnstile widget produces a token just before the request. Tokens are single-use and expire after 5 minutes. When deployed, the real secret key is a container secret, `Captcha:TurnstileSecretKey`.
 
 ### The local test clients
 

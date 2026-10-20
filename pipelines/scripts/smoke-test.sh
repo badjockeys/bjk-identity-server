@@ -790,7 +790,7 @@ check_refuses_to_start "won't start without bjk-core's messaging connection" "Me
 # The Development age check providers don't check anyone's age, so only Development may use them.
 check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production
-check_refuses_to_start "won't start outside Development without a Key Vault key for the Data Protection keys" "DataProtection:KeyVaultKeyId is required outside Development" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start outside Development without a certificate for the Data Protection keys" "DataProtection:Certificate is required outside Development" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
 
 # ---------- summary ----------

@@ -31,7 +31,7 @@ public sealed class AppClientOptions
 
     public string[] PostLogoutRedirectUris { get; set; } = [];
 
-    /// <summary>Confidential clients only (web, back-office). Secret: user secrets locally, Key Vault in Azure.</summary>
+    /// <summary>Confidential clients only (web, back-office). Secret: user secrets locally, a container secret when deployed.</summary>
     public string? Secret { get; set; }
 
     public bool IsConfigured => RedirectUris.Length > 0;
