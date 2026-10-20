@@ -9,6 +9,7 @@ using BJK.Idsrv.Host.Services.Support;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
 using BJK.Modules.Shared.Configuration;
+using BJK.Modules.Shared.Observability;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
 using BJK.Modules.User;
@@ -23,6 +24,10 @@ const string ConnectionStringName = "IdentityDatabase";
 const string MigrationsHistoryTable = "__EFMigrationsHistory";
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Logs, traces and metrics over OTLP: locally the otel-lgtm container in bjk-core's Docker group (launchSettings.json),
+// Grafana Cloud when deployed. See "Logs, traces and metrics" in the bjk-modules README.
+builder.AddBjkObservability("bjk-identity-server");
 
 var connectionString = builder.Configuration.GetConnectionString(ConnectionStringName)
     ?? throw new InvalidOperationException(

@@ -89,6 +89,7 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | `AgeAssurance:Estimator:Provider` | `Http`, with `Http:Name`, `Endpoint` and `ApiKey` (secret) | An age estimation vendor |
 | `AgeAssurance:Document:Provider` | A photo-ID provider | **Not built yet**: choose a vendor and add an `IDocumentAgeCheck` |
 | `Admin:BootstrapEmails` | The first admin's confirmed email | |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` (secret), `OTEL_EXPORTER_OTLP_PROTOCOL` | Grafana Cloud's OTLP address (https), `Authorization=Basic <instance id:token, base64>`, `http/protobuf`. Locally `launchSettings.json` sends to bjk-core's `otel-lgtm` container (http://localhost:4318) | A Grafana Cloud stack |
 
 ## Encryption
 
