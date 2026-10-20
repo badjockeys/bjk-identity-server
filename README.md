@@ -36,6 +36,8 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 
 ## Configuration
 
+**Going live:** [`go-live.settings.template.json`](go-live.settings.template.json) lists every setting a deployed environment needs, with a `<GO-LIVE ...>` placeholder wherever a real value (or a supplier account) is still missing. Locally nothing needs a supplier: email goes to the log, and the age check, CAPTCHA and social sign-in use stand-ins or are off.
+
 | Key | Notes |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | Required. Deployed environments must use an encrypted connection and the managed identity: see [Encryption](#encryption). |

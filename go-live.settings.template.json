@@ -1,0 +1,103 @@
+{
+  "//": "GO-LIVE CHECKLIST for the identity server. Not used on your machine: setup reads user-secrets.template.json. Every <GO-LIVE ...> value must be replaced before launch. SECRET values go in Key Vault; the rest are container settings (Terraform). Nested keys become environment variables with __, e.g. Email__SendGrid__ApiKey. Values without <...> are what live should use. The app refuses to start outside Development with the Development age-check providers or without DataProtection:KeyVaultKeyId.",
+
+  "ConnectionStrings": {
+    "IdentityDatabase": "<GO-LIVE: Azure SQL with the app's managed identity, e.g. Server=tcp:<server>.database.windows.net,1433;Database=idsrv;Authentication=Active Directory Managed Identity;Encrypt=True>",
+    "Messaging": "<GO-LIVE: the badjockeys database, with a login that can only read messaging.subscriptions and add rows to the messaging tables; Encrypt=True>"
+  },
+  "Duende": {
+    "LicenseKey": "<GO-LIVE SECRET: Duende IdentityServer licence key (apply for the free Community Edition before launch)>"
+  },
+  "MediatR": {
+    "LicenseKey": "<GO-LIVE SECRET: MediatR licence key>"
+  },
+  "DataProtection": {
+    "//": "Required outside Development. The app's managed identity needs get, wrap and unwrap on the key.",
+    "KeyVaultKeyId": "<GO-LIVE: e.g. https://<vault>.vault.azure.net/keys/dataprotection>",
+    "ManagedIdentityClientId": "<GO-LIVE (only for a user-assigned identity): its client id; otherwise empty>"
+  },
+
+  "Email": {
+    "//": "Confirmation, password reset and sign-in code emails. Provider defaults to Log, which sends NOTHING: live must say SendGrid.",
+    "Provider": "SendGrid",
+    "FromAddress": "<GO-LIVE: e.g. no-reply@badjockeys.com, on a domain verified in SendGrid>",
+    "FromName": "Bad Jockeys",
+    "ReplyToAddress": "support@badjockeys.com",
+    "LogoUrl": "<GO-LIVE: a PNG logo for email headers, e.g. https://badjockeys.com/email-logo.png>",
+    "PublicOrigin": "<GO-LIVE: this server's public address, e.g. https://auth.badjockeys.com>",
+    "PasswordResetUrl": "<GO-LIVE: e.g. https://auth.badjockeys.com/Account/ResetPassword>",
+    "SendGrid": {
+      "ApiKey": "<GO-LIVE SECRET: SendGrid API key with the Mail Send permission only>"
+    }
+  },
+  "Captcha": {
+    "TurnstileSecretKey": "<GO-LIVE SECRET: Cloudflare Turnstile secret key>",
+    "TurnstileSiteKey": "<GO-LIVE: Cloudflare Turnstile site key>"
+  },
+
+  "Clients": {
+    "Web": {
+      "RedirectUris": [ "<GO-LIVE: e.g. https://badjockeys.com/api/auth/callback/bjk>" ],
+      "PostLogoutRedirectUris": [ "<GO-LIVE: e.g. https://badjockeys.com/>" ],
+      "Secret": "<GO-LIVE SECRET: a long random string; the web app's IDSRV_CLIENT_SECRET>"
+    },
+    "Mobile": {
+      "RedirectUris": [ "badjockeys://auth/callback" ],
+      "PostLogoutRedirectUris": [ "badjockeys://auth/signed-out" ]
+    },
+    "Backoffice": {
+      "RedirectUris": [ "<GO-LIVE: the moderator back office, e.g. https://admin.badjockeys.com/api/auth/callback/bjk>" ],
+      "PostLogoutRedirectUris": [ "<GO-LIVE: e.g. https://admin.badjockeys.com/>" ],
+      "Secret": "<GO-LIVE SECRET: a long random string>"
+    }
+  },
+  "Authentication": {
+    "//": "Social sign-in: each is switched on only when its keys are set. Leave a provider's keys empty to keep it off.",
+    "Google": { "ClientId": "<GO-LIVE (optional): Google OAuth client id>", "ClientSecret": "<GO-LIVE SECRET (optional)>" },
+    "Apple": { "ClientId": "<GO-LIVE (optional): Services ID>", "TeamId": "<GO-LIVE (optional)>", "KeyId": "<GO-LIVE (optional)>", "PrivateKey": "<GO-LIVE SECRET (optional): .p8 key>" },
+    "Facebook": { "AppId": "<GO-LIVE (optional)>", "AppSecret": "<GO-LIVE SECRET (optional)>" }
+  },
+
+  "SignUp": {
+    "//": "Cloudflare adds the visitor's country; trust it only behind Cloudflare.",
+    "AllowedCountries": [ "GB" ],
+    "TrustCloudflareCountryHeader": true,
+    "DevelopmentCountry": ""
+  },
+  "AgeAssurance": {
+    "//": "The on-demand age check for sensitive posts. The Development providers are refused outside Development. NOTE: there's no real photo-ID provider yet; one has to be chosen and integrated (an IDocumentAgeCheck) before launch.",
+    "ChallengeAge": 25,
+    "MaxAttemptsPerDay": 3,
+    "Liveness": {
+      "Provider": "YuNet",
+      "YuNet": { "ModelPath": "<GO-LIVE: path in the image, e.g. /opt/bjk/models/face_detection_yunet_2023mar.onnx>", "FfmpegPath": "/usr/bin/ffmpeg" }
+    },
+    "Estimator": {
+      "Provider": "Http",
+      "Http": {
+        "Name": "<GO-LIVE: the age estimation vendor, e.g. Yoti>",
+        "Endpoint": "<GO-LIVE: the vendor's age estimation endpoint>",
+        "ApiKey": "<GO-LIVE SECRET: the vendor's API key>",
+        "ApiKeyHeader": "Authorization",
+        "ApiKeyPrefix": "Bearer ",
+        "AgePath": "age"
+      }
+    },
+    "Document": {
+      "Provider": "<GO-LIVE: a photo-ID provider (not built yet)>"
+    }
+  },
+  "Support": {
+    "Email": "support@badjockeys.com"
+  },
+  "Admin": {
+    "BootstrapEmails": [ "<GO-LIVE: the first admin's confirmed email, e.g. aaron.greenhalgh@badjockey.com>" ]
+  },
+  "Messaging": {
+    "ConnectionStringName": "Messaging",
+    "CreateTables": false
+  },
+  "Database": {
+    "AllowDestructiveMigrations": false
+  }
+}
