@@ -13,6 +13,8 @@
     <dd>@Model.Email @(Model.EmailConfirmed ? "(confirmed)" : "(not confirmed)")</dd>
     <dt>Two-step</dt>
     <dd>@(Model.TwoFactorEnabled ? "On" : "Off")</dd>
+    <dt>Mobile number</dt>
+    <dd>@(Model.MobileNumber ?? "Not added")</dd>
     <dt>Sensitive posts</dt>
     <dd>@(Model.UnderAgeByDateOfBirth && Model.AgeCheckStatus != BJK.Modules.User.Domain.AgeCheckStatus.Passed ? "For adults only (18 and over)" : Model.AgeCheckStatus switch
     {
@@ -41,6 +43,7 @@
         <a asp-page="/Account/CheckAge" asp-route-returnUrl="/Manage">Verify your age to view sensitive posts</a>
     }
     <a asp-page="./TwoFactor">Two-step verification</a>
+    <a asp-page="./MobileNumber">Mobile number</a>
     <a asp-page="./ChangePassword">@(Model.HasPassword ? "Change password" : "Set a password")</a>
     <a asp-page="./ExternalLogins">Google, Apple and Facebook sign-in</a>
     <a asp-page="./Deactivate">Deactivate my account</a>

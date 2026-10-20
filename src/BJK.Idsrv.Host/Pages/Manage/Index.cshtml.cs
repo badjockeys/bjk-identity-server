@@ -17,6 +17,9 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
 
     public bool TwoFactorEnabled { get; private set; }
 
+    /// <summary>The confirmed mobile number, masked, or null.</summary>
+    public string? MobileNumber { get; private set; }
+
     public bool HasPassword { get; private set; }
 
     public IList<string> Roles { get; private set; } = [];
@@ -37,6 +40,7 @@ public sealed class IndexModel(UserManager<BjkIdentityUser> users, ISender sende
         Email = user.Email;
         EmailConfirmed = user.EmailConfirmed;
         TwoFactorEnabled = user.TwoFactorEnabled;
+        MobileNumber = user is { PhoneNumberConfirmed: true, PhoneNumber: { } phone } ? Services.MobileNumbers.Mask(phone) : null;
         HasPassword = await users.HasPasswordAsync(user);
         Roles = await users.GetRolesAsync(user);
         try
