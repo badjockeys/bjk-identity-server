@@ -48,6 +48,18 @@ namespace BJK.Idsrv.Host.Data.Migrations.Identity
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<DateTimeOffset?>("MobileCodeSentAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly?>("MobileCodesDay")
+                        .HasColumnType("date");
+
+                    b.Property<int>("MobileCodesSent")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("MobileDiscoverable")
+                        .HasColumnType("bit");
+
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -60,7 +72,7 @@ namespace BJK.Idsrv.Host.Data.Migrations.Identity
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PhoneNumber")
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("bit");
@@ -84,6 +96,8 @@ namespace BJK.Idsrv.Host.Data.Migrations.Identity
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex")
                         .HasFilter("[NormalizedUserName] IS NOT NULL");
+
+                    b.HasIndex("PhoneNumber");
 
                     b.ToTable("AspNetUsers", "auth");
                 });
