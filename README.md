@@ -36,7 +36,7 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 
 ## Configuration
 
-**Going live:** [`go-live.settings.template.json`](go-live.settings.template.json) lists every setting a deployed environment needs, with a `<GO-LIVE ...>` placeholder wherever a real value (or a supplier account) is still missing. Locally nothing needs a supplier: email goes to the log, and the age check, CAPTCHA and social sign-in use stand-ins or are off.
+Locally everything comes from your user secrets (`user-secrets.template.json`, loaded by the setup) and no supplier account is needed: email goes to the log, and the age check, CAPTCHA and social sign-in use stand-ins or are off. The table below is every setting; [Going live](#going-live) lists what a deployed environment must change.
 
 | Key | Notes |
 |---|---|
@@ -62,6 +62,31 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. |
 
 Locally these come from .NET user secrets: load them from `user-secrets.template.json`. In Azure they come from Key Vault and App Service settings. The appsettings files hold no environment settings, and no secrets are stored in the repo.
+
+### Going live
+
+Secrets go in Key Vault; everything else is a container setting (Terraform). Nested keys become environment variables with `__`, e.g. `Email__SendGrid__ApiKey`.
+
+| Setting | Live value | Still needed |
+|---|---|---|
+| `ConnectionStrings:IdentityDatabase` | Azure SQL `idsrv` with the managed identity, `Encrypt=True` | The live server |
+| `ConnectionStrings:Messaging` | The `badjockeys` database, with the restricted messaging login | The live server |
+| `Duende:LicenseKey` (secret) | The Community Edition key | Apply for it |
+| `MediatR:LicenseKey` (secret) | The licence key | Get one |
+| `DataProtection:KeyVaultKeyId` | e.g. `https://<vault>.vault.azure.net/keys/dataprotection` | The Key Vault key; managed identity with get, wrap and unwrap |
+| `Email:Provider` | `SendGrid`. **`Log` is the default in every environment**, so without this nothing is sent | A SendGrid account |
+| `Email:SendGrid:ApiKey` (secret) | A key with Mail Send only | A SendGrid account |
+| `Email:FromAddress`, `Email:ReplyToAddress`, `Email:LogoUrl` | e.g. `no-reply@badjockeys.com` (verified domain), `support@badjockeys.com`, a PNG logo URL | Domain verified in SendGrid |
+| `Email:PublicOrigin`, `Email:PasswordResetUrl` | e.g. `https://auth.badjockeys.com`, `https://auth.badjockeys.com/Account/ResetPassword` | The live domain |
+| `Captcha:TurnstileSecretKey` (secret), `Captcha:TurnstileSiteKey` | The real Turnstile widget's keys | A Cloudflare account |
+| `Clients:Web` | `RedirectUris` e.g. `https://badjockeys.com/api/auth/callback/bjk`, `PostLogoutRedirectUris` `https://badjockeys.com/`, `Secret` (secret, matches the web app's `IDSRV_CLIENT_SECRET`) | The live domain |
+| `Clients:Backoffice` | The back office's addresses and secret | The back office (not built) |
+| `Authentication:Google`, `:Apple`, `:Facebook` (secrets) | Optional; each stays off until its keys are set | Developer accounts, if wanted |
+| `SignUp:TrustCloudflareCountryHeader` | `true` (required outside Development) | Cloudflare in front |
+| `AgeAssurance:Liveness:Provider` | `YuNet`, with `YuNet:ModelPath` and ffmpeg in the image | The model in the image |
+| `AgeAssurance:Estimator:Provider` | `Http`, with `Http:Name`, `Endpoint` and `ApiKey` (secret) | An age estimation vendor |
+| `AgeAssurance:Document:Provider` | A photo-ID provider | **Not built yet**: choose a vendor and add an `IDocumentAgeCheck` |
+| `Admin:BootstrapEmails` | The first admin's confirmed email | |
 
 ## Encryption
 
