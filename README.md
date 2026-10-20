@@ -24,7 +24,8 @@ tests/
 | Part | Library | SQL schema |
 |---|---|---|
 | Sign-in accounts and passwords | ASP.NET Core Identity | `auth` |
-| Sign-in pages: sign in/up (date of birth, 13+), two-step (authenticator app, email codes, recovery codes), Google/Apple/Facebook, forgot password, reactivate, account settings, verify your age for sensitive posts | Razor Pages in this host | |
+| Sign-in pages: sign in/up (date of birth, 13+), two-step (authenticator app, email codes, recovery codes), Google/Apple/Facebook, forgot password, reactivate, account settings, mobile number, verify your age for sensitive posts | Razor Pages in this host | |
+| Optional mobile number, confirmed by a texted code; "Let people with my number find me" (adults only) | ASP.NET Core Identity + BJK.Modules.SMS | `auth.AspNetUsers` |
 | Age policy (19 Oct 2026): minimum age 13 by declared date of birth (stored on the account; under 13 refused and not kept); `minor` = `"true"` in tokens for under-18s, worked out at every token issue and refresh | BJK.Modules.User + this host | `users` |
 | Age check (18+, on demand, to view sensitive posts): head-turn selfie with liveness check and age estimate, or photo ID; `age_verified` claim. Not offered to under-18s by date of birth | BJK.Modules.User + YuNet (ONNX Runtime) in this host | `users` (outcome only) |
 | Data Protection keys (cookies, antiforgery, two-step tokens, stored two-step secrets), shared by all instances; encrypted with a certificate in deployed environments | ASP.NET Core Data Protection | `auth` |
@@ -48,6 +49,7 @@ Locally everything comes from your user secrets (`user-secrets.template.json`, l
 | `Database:AllowDestructiveMigrations` | Default `false`. |
 | `Email:Provider` | `Log` (default): emails aren't sent; in Development they're written to the log. `SendGrid`: sent through SendGrid (needs `Email:SendGrid:ApiKey`, secret). |
 | `Email:LogoUrl`, `Email:ReplyToAddress` | Optional: PNG logo at the top of emails, and a reply-to address. |
+| `SMS:Provider` | `Log` (default): texts aren't sent; in Development they're written to the log (with the code, so you can confirm a number locally). `Twilio`: sent through Twilio (needs `SMS:Twilio:AccountSid`, `ApiKeySid`, `ApiKeySecret` (secret) and `MessagingServiceSid`). Used to confirm mobile numbers. |
 | `Email:FromAddress`, `Email:PasswordResetUrl` | Sender address, and the web app page that reset links point to. |
 | `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` (`Messaging`), `Messaging:CreateTables` (`false`) | Required. User lifecycle events (deactivated, reactivated, deleted) are saved in `users.Outbox` with the account change, then published to the `bjk.users` topic: a row in bjk-core's queue table `[messaging].[bjk-core.user-events]` in the app database (`badjockeys`). The app won't start without it. In Azure this connection uses its own database user in `badjockeys` with `SELECT` on `messaging.subscriptions` and `INSERT` on the `messaging` schema only, so the identity server can queue events but can't read or change bjk-core's data (setup script in the bjk-modules README, "Messaging"). Events wait in the outbox until bjk-core has started once and subscribed. |
 | `Users:DeactivationGracePeriod`, `Users:RetentionCheckInterval` | Defaults: 90 days before a deactivated account is deleted; check hourly. |
@@ -80,6 +82,8 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | `Email:SendGrid:ApiKey` (secret) | A key with Mail Send only | A SendGrid account |
 | `Email:FromAddress`, `Email:ReplyToAddress`, `Email:LogoUrl` | e.g. `no-reply@badjockeys.com` (verified domain), `support@badjockeys.com`, a PNG logo URL | Domain verified in SendGrid |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | e.g. `https://auth.badjockeys.com`, `https://auth.badjockeys.com/Account/ResetPassword` | The live domain |
+| `SMS:Provider` | `Twilio` (`Log` is the default, and refused outside Development) | A Twilio account |
+| `SMS:Twilio:AccountSid`, `ApiKeySid`, `ApiKeySecret` (secret), `MessagingServiceSid` | An API key rather than the auth token; a Messaging Service with the UK sender ID (the same as bjk-core's) | A Twilio account; the UK sender ID registered |
 | `Captcha:TurnstileSecretKey` (secret), `Captcha:TurnstileSiteKey` | The real Turnstile widget's keys | A Cloudflare account |
 | `Clients:Web` | `RedirectUris` e.g. `https://badjockeys.com/api/auth/callback/bjk`, `PostLogoutRedirectUris` `https://badjockeys.com/`, `Secret` (secret, matches the web app's `IDSRV_CLIENT_SECRET`) | The live domain |
 | `Clients:Backoffice` | The back office's addresses and secret | The back office (not built) |
@@ -90,6 +94,16 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | `AgeAssurance:Document:Provider` | A photo-ID provider | **Not built yet**: choose a vendor and add an `IDocumentAgeCheck` |
 | `Admin:BootstrapEmails` | The first admin's confirmed email | |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` (secret), `OTEL_EXPORTER_OTLP_PROTOCOL` | Grafana Cloud's OTLP address (https), `Authorization=Basic <instance id:token, base64>`, `http/protobuf`. Locally `launchSettings.json` sends to bjk-core's `otel-lgtm` container (http://localhost:4318) | A Grafana Cloud stack |
+
+## Mobile number
+
+UI overhaul step 6 (20 Oct 2026). **Your account → Mobile number** (`/Manage/MobileNumber`) lets a member add an optional UK mobile number:
+
+- They enter it (`07700 900123`, `+44 7700 900123` and similar; stored as E.164, `+447700900123`) and we text a code (`SMSTemplates.ConfirmMobileCode`, from ASP.NET Core Identity's change-phone-number token). Entering the code confirms it (`PhoneNumberConfirmed`). Changing it repeats the same steps; removing it clears it.
+- **One account per number:** a number already confirmed on another account is refused.
+- **Limits:** one code a minute and five a day per account (`MobileCodeLimits`), so texts can't be run up.
+- **"Let people with my number find me"** (`MobileDiscoverable`): on by default for adults when the number is confirmed, and can be switched off; **always off for under-18s** (or if the date of birth isn't known). The mobile app will match contacts against it, in hashed form, after consent; nothing unmatched is kept. That matching comes with the app.
+- The number is never shown to anyone else, never logged, and is deleted with the account. The account page shows it masked (`07700 *** 123`).
 
 ## Encryption
 

@@ -1,0 +1,54 @@
+@page
+@model MobileNumberModel
+@{
+    ViewData["Title"] = "Mobile number";
+}
+<h1>Mobile number</h1>
+<p class="lead">Optional. It's never shown on your profile or to anyone else. In the Bad Jockeys app, people who have your number in their contacts can find you, if you let them.</p>
+@if (TempData["Notice"] is string notice)
+{
+    <p class="notice ok" role="status">@notice</p>
+}
+<div asp-validation-summary="ModelOnly" class="validation-summary-errors"></div>
+
+@if (Model.Current is not null)
+{
+    <dl>
+        <dt>Your number</dt>
+        <dd>@Model.Current (confirmed)</dd>
+        <dt>Let people with my number find me</dt>
+        <dd>@(Model.IsMinor ? "Off: people under 18 can't be found by their number" : Model.Discoverable ? "On" : "Off")</dd>
+    </dl>
+    @if (!Model.IsMinor)
+    {
+        <form method="post" asp-page-handler="Discoverable">
+            <input type="hidden" name="on" value="@(Model.Discoverable ? "false" : "true")" />
+            <button type="submit" class="secondary">@(Model.Discoverable ? "Turn off: don't let people find me by my number" : "Turn on: let people with my number find me")</button>
+        </form>
+    }
+    <form method="post" asp-page-handler="Remove">
+        <button type="submit" class="secondary">Remove my number</button>
+    </form>
+}
+
+@if (Model.Pending is not null)
+{
+    <h2>Enter the code</h2>
+    <p>We texted a code to @Model.Pending. It works for a few minutes.</p>
+    <form method="post" asp-page-handler="Confirm">
+        <label asp-for="Input.Code">Code</label>
+        <input asp-for="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" />
+        <span asp-validation-for="Input.Code" class="field-validation-error"></span>
+        <button type="submit">Confirm</button>
+    </form>
+}
+
+<h2>@(Model.Current is null ? "Add a mobile number" : "Change your number")</h2>
+<form method="post" asp-page-handler="SendCode">
+    <label asp-for="Input.Number">UK mobile number</label>
+    <input asp-for="Input.Number" type="tel" inputmode="tel" autocomplete="tel" placeholder="07700 900123" maxlength="20" />
+    <span asp-validation-for="Input.Number" class="field-validation-error"></span>
+    <button type="submit">Text me a code</button>
+</form>
+<p class="hint">We'll text you a code to confirm it's yours. Standard network rates may apply.</p>
+<div class="links"><a asp-page="./Index">Back to your account</a></div>

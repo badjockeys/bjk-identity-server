@@ -12,6 +12,7 @@ using BJK.Modules.Shared.Configuration;
 using BJK.Modules.Shared.Observability;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
+using BJK.Modules.SMS;
 using BJK.Modules.User;
 using BJK.Modules.User.Infrastructure.Services;
 using Duende.IdentityServer.EntityFramework.DbContexts;
@@ -154,7 +155,8 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizePage("/Account/CheckAge");
     options.Conventions.AuthorizePage("/Account/DateOfBirth");
 });
-builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule());
+// SMS: confirming the optional mobile number (Manage/MobileNumber). Outside Development SMS:Provider must be Twilio.
+builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule(), new SMSModule());
 
 builder.Services.AddHealthChecks();
 
