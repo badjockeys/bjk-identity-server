@@ -27,7 +27,7 @@ tests/
 | Sign-in pages: sign in/up (date of birth, 13+), two-step (authenticator app, email codes, recovery codes), Google/Apple/Facebook, forgot password, reactivate, account settings, verify your age for sensitive posts | Razor Pages in this host | |
 | Age policy (19 Oct 2026): minimum age 13 by declared date of birth (stored on the account; under 13 refused and not kept); `minor` = `"true"` in tokens for under-18s, worked out at every token issue and refresh | BJK.Modules.User + this host | `users` |
 | Age check (18+, on demand, to view sensitive posts): head-turn selfie with liveness check and age estimate, or photo ID; `age_verified` claim. Not offered to under-18s by date of birth | BJK.Modules.User + YuNet (ONNX Runtime) in this host | `users` (outcome only) |
-| Data Protection keys (cookies, antiforgery, two-step tokens, stored two-step secrets), shared by all instances; encrypted with an Azure Key Vault key in deployed environments | ASP.NET Core Data Protection + Azure Key Vault | `auth` |
+| Data Protection keys (cookies, antiforgery, two-step tokens, stored two-step secrets), shared by all instances; encrypted with a certificate in deployed environments | ASP.NET Core Data Protection | `auth` |
 | Two-step secrets (authenticator keys and recovery codes) encrypted at rest | `ProtectedUserStore` in this host | `auth.AspNetUserTokens` |
 | Tokens, signing keys, sessions | Duende IdentityServer 8 | `idsrv` |
 | Account status, deactivation and retention, management API (`/api/users`), outbox of user events | BJK.Modules.User | `users` |
@@ -40,9 +40,9 @@ Locally everything comes from your user secrets (`user-secrets.template.json`, l
 
 | Key | Notes |
 |---|---|
-| `ConnectionStrings:IdentityDatabase` | Required. Deployed environments must use an encrypted connection and the managed identity: see [Encryption](#encryption). |
-| `DataProtection:KeyVaultKeyId` | **Required outside Development** (the app won't start without it): the Azure Key Vault key that encrypts the Data Protection keys, e.g. `https://<vault>.vault.azure.net/keys/dataprotection`. Empty locally (keys stored unencrypted, with a warning in the log). |
-| `DataProtection:ManagedIdentityClientId` | Optional: client id of a user-assigned managed identity for Key Vault. Empty uses the system-assigned identity (DefaultAzureCredential). |
+| `ConnectionStrings:IdentityDatabase` | Required. Deployed environments must use an encrypted connection: see [Encryption](#encryption). |
+| `DataProtection:Certificate` | **Required outside Development** (the app won't start without it, or if it can't be read): the certificate that encrypts the Data Protection keys, a PFX file with its private key as base64. Secret. Empty locally (keys stored unencrypted, with a warning in the log). See [Encryption](#encryption). |
+| `DataProtection:CertificatePassword`, `DataProtection:PreviousCertificates` | Secrets. The PFX password, and certificates used before a rotation (so older keys can still be read). |
 | `Duende:LicenseKey` | Not needed for development or testing; required in production. The free Community Edition covers companies under $1M revenue. |
 | `MediatR:LicenseKey` | MediatR 13+ licence key; free Community licence under $5M revenue. |
 | `Database:AllowDestructiveMigrations` | Default `false`. |
@@ -61,19 +61,19 @@ Locally everything comes from your user secrets (`user-secrets.template.json`, l
 | `Support:Email` | Default `support@badjockeys.com`; checked at startup. The "Contact support" link after a failed age check opens an email to it, with the attempt's reference (`AGE-XXXXXX`) in the subject. It's a mailto link for now; a ticketing system (e.g. Zammad, Freshdesk or Help Scout) replaces it once email passes about 50 tickets a week. |
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. |
 
-Locally these come from .NET user secrets: load them from `user-secrets.template.json`. In Azure they come from Key Vault and App Service settings. The appsettings files hold no environment settings, and no secrets are stored in the repo.
+Locally these come from .NET user secrets: load them from `user-secrets.template.json`. When deployed they come from the container's settings, with secrets as container secrets. The appsettings files hold no environment settings, and no secrets are stored in the repo.
 
 ### Going live
 
-Secrets go in Key Vault; everything else is a container setting (Terraform). Nested keys become environment variables with `__`, e.g. `Email__SendGrid__ApiKey`.
+Secrets are container secrets; everything else is a container setting (Terraform). Nothing needs a cloud-specific service. Nested keys become environment variables with `__`, e.g. `Email__SendGrid__ApiKey`.
 
 | Setting | Live value | Still needed |
 |---|---|---|
-| `ConnectionStrings:IdentityDatabase` | Azure SQL `idsrv` with the managed identity, `Encrypt=True` | The live server |
-| `ConnectionStrings:Messaging` | The `badjockeys` database, with the restricted messaging login | The live server |
+| `ConnectionStrings:IdentityDatabase` (secret) | Azure SQL `idsrv` with its own SQL login, `Encrypt=True` | The live server |
+| `ConnectionStrings:Messaging` (secret) | The `badjockeys` database, with the restricted messaging login | The live server |
 | `Duende:LicenseKey` (secret) | The Community Edition key | Apply for it |
 | `MediatR:LicenseKey` (secret) | The licence key | Get one |
-| `DataProtection:KeyVaultKeyId` | e.g. `https://<vault>.vault.azure.net/keys/dataprotection` | The Key Vault key; managed identity with get, wrap and unwrap |
+| `DataProtection:Certificate`, `CertificatePassword` (secrets) | A self-signed certificate made once (see [Encryption](#encryption)) | Make it and keep a safe copy |
 | `Email:Provider` | `SendGrid`. **`Log` is the default in every environment**, so without this nothing is sent | A SendGrid account |
 | `Email:SendGrid:ApiKey` (secret) | A key with Mail Send only | A SendGrid account |
 | `Email:FromAddress`, `Email:ReplyToAddress`, `Email:LogoUrl` | e.g. `no-reply@badjockeys.com` (verified domain), `support@badjockeys.com`, a PNG logo URL | Domain verified in SendGrid |
@@ -91,9 +91,16 @@ Secrets go in Key Vault; everything else is a container setting (Terraform). Nes
 ## Encryption
 
 **Data Protection keys.** Cookies, antiforgery tokens, two-step tokens and the stored two-step secrets are protected with ASP.NET Core Data Protection. Its keys live in SQL (`auth.DataProtectionKeys`) so every instance shares them.
-- **Deployed environments:** each key is wrapped with an Azure Key Vault key (`DataProtection:KeyVaultKeyId`, via `ProtectKeysWithAzureKeyVault`) using the app's managed identity (DefaultAzureCredential). A copy of the database alone can't unwrap them. The app refuses to start outside Development without the setting.
-- **What the managed identity needs on that key:** get, wrap key and unwrap key (Key Vault Crypto User, or an access policy with those permissions).
-- **Don't delete or disable the Key Vault key** (keep soft delete and purge protection on). Without it, existing keys can't be unwrapped: everyone is signed out, and stored two-step secrets can't be read. Rotating the key in Key Vault is fine: old versions stay usable.
+- **Deployed environments:** each key is encrypted with an X.509 certificate (`DataProtection:Certificate`, a PFX file with its private key as base64, via `ProtectKeysWithCertificate`). The certificate is a container secret, kept apart from the database, so a copy of the database alone can't read the keys. Standard .NET: it works the same on any cloud. The app refuses to start outside Development without it, or if it can't be read.
+- **Making the certificate** (once per environment; it doesn't need a certificate authority):
+  ```
+  openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes -subj "/CN=bjk-dataprotection" -keyout dp.key -out dp.crt
+  openssl pkcs12 -export -inkey dp.key -in dp.crt -out dp.pfx -passout pass:<a password>
+  base64 -i dp.pfx    # the value for DataProtection:Certificate
+  ```
+  Store the PFX and password somewhere safe outside the cloud (e.g. a password manager), then delete the local files.
+- **Don't lose the certificate.** Without it, existing keys can't be read: everyone is signed out, and stored two-step secrets can't be read. It doesn't matter if it expires (Data Protection still uses it).
+- **Rotating it:** make a new one, put it in `DataProtection:Certificate`, and move the old one to `DataProtection:PreviousCertificates` (same password) so keys it encrypted can still be read. New keys (made every 90 days) use the new certificate; drop the old one after 90 days.
 - **Locally,** the keys are stored unencrypted and the app logs a warning.
 
 **Two-step secrets.** Authenticator app keys and recovery codes in `auth.AspNetUserTokens` are encrypted with Data Protection (`ProtectedUserStore`, stored as `dp1:` plus the payload).
@@ -103,15 +110,15 @@ Secrets go in Key Vault; everything else is a container setting (Terraform). Nes
 
 **Database connections.** Deployed connection strings must:
 - encrypt the connection and check the server's certificate: `Encrypt=True`, and never `TrustServerCertificate=True`;
-- sign in as the app's managed identity: `Authentication=Active Directory Managed Identity`, with no user name or password. For a user-assigned identity, add `User Id=<its client id>`.
+- sign in with the app's own SQL login (not an admin login), whose password is a container secret. The whole connection string is a secret.
 
 For example:
 
 ```
-Server=tcp:<server>.database.windows.net,1433;Database=idsrv;Encrypt=True;Authentication=Active Directory Managed Identity
+Server=tcp:<server>.database.windows.net,1433;Database=idsrv;Encrypt=True;User Id=bjk_idsrv;Password=<secret>
 ```
 
-The managed identity is created as a database user (`CREATE USER [<app name>] FROM EXTERNAL PROVIDER`) with the roles the app needs. `TrustServerCertificate=True` appears only in the local Docker and CI connection strings, where SQL Server has a self-signed certificate.
+Each app gets its own login with only the roles it needs. Plain SQL logins keep this the same on any cloud's SQL Server. `TrustServerCertificate=True` appears only in the local Docker and CI connection strings, where SQL Server has a self-signed certificate.
 
 ## Local development
 

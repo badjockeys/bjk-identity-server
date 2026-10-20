@@ -1,5 +1,5 @@
-extern alias AzureIdentity;
-
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using BJK.Idsrv.Host.Data;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
@@ -9,53 +9,95 @@ namespace BJK.Idsrv.Host.Services.Security;
 /// <summary>
 /// Section <c>DataProtection</c>. The Data Protection keys (which protect cookies, antiforgery tokens, two-step
 /// tokens and the stored two-step secrets) are kept in SQL (<c>auth.DataProtectionKeys</c>) so every instance shares
-/// them. In deployed environments they're encrypted at rest with an Azure Key Vault key, using the app's managed
-/// identity, so a copy of the database alone can't be used to read them.
+/// them. In deployed environments they're encrypted at rest with an X.509 certificate passed to the container as a
+/// secret, so a copy of the database alone can't be used to read them. Standard .NET: no cloud service is involved.
 /// </summary>
 public sealed class DataProtectionSettings
 {
     public const string SectionName = "DataProtection";
 
     /// <summary>
-    /// The Key Vault key that wraps the Data Protection keys, e.g.
-    /// <c>https://bjk-live-kv.vault.azure.net/keys/dataprotection</c> (optionally with a version). Required outside
-    /// Development; the app won't start without it. Locally, empty: keys are stored unencrypted (with a warning).
+    /// Secret. The certificate that encrypts the Data Protection keys: a PFX (PKCS #12) file with its private key, as
+    /// base64. Required outside Development; the app won't start without it. Locally, empty: keys are stored
+    /// unencrypted (with a warning).
     /// </summary>
-    public string? KeyVaultKeyId { get; set; }
+    public string? Certificate { get; set; }
+
+    /// <summary>Secret. The PFX file's password, if it has one.</summary>
+    public string? CertificatePassword { get; set; }
 
     /// <summary>
-    /// Optional: the client id of a user-assigned managed identity to use for Key Vault. Empty uses
-    /// DefaultAzureCredential's normal chain (the system-assigned managed identity in Azure).
+    /// Secret. Certificates used before a rotation (base64 PFX files, with <see cref="CertificatePassword"/>), so keys
+    /// they encrypted can still be read. New keys always use <see cref="Certificate"/>.
     /// </summary>
-    public string? ManagedIdentityClientId { get; set; }
-
-    /// <summary>The key id as a URL, if it's a valid Key Vault key URL.</summary>
-    public Uri? KeyVaultKeyUri =>
-        Uri.TryCreate(KeyVaultKeyId, UriKind.Absolute, out var uri)
-        && uri.Scheme == Uri.UriSchemeHttps
-        && uri.AbsolutePath.StartsWith("/keys/", StringComparison.OrdinalIgnoreCase)
-        && uri.AbsolutePath.Length > "/keys/".Length
-            ? uri
-            : null;
+    public string[] PreviousCertificates { get; set; } = [];
 }
 
 internal sealed class DataProtectionSettingsValidator(IHostEnvironment environment) : IValidateOptions<DataProtectionSettings>
 {
     public ValidateOptionsResult Validate(string? name, DataProtectionSettings options)
     {
-        if (string.IsNullOrWhiteSpace(options.KeyVaultKeyId))
+        if (string.IsNullOrWhiteSpace(options.Certificate))
         {
             return environment.IsDevelopment()
                 ? ValidateOptionsResult.Success
                 : ValidateOptionsResult.Fail(
-                    "DataProtection:KeyVaultKeyId is required outside Development: the Data Protection keys must be "
-                    + "encrypted with an Azure Key Vault key (e.g. https://<vault>.vault.azure.net/keys/<key>).");
+                    "DataProtection:Certificate is required outside Development: the Data Protection keys must be "
+                    + "encrypted with a certificate (a PFX file with its private key, as base64).");
         }
 
-        return options.KeyVaultKeyUri is null
-            ? ValidateOptionsResult.Fail(
-                "DataProtection:KeyVaultKeyId must be a Key Vault key URL, e.g. https://<vault>.vault.azure.net/keys/<key>.")
-            : ValidateOptionsResult.Success;
+        var certificates = new List<(string? Value, string Setting)> { (options.Certificate, "DataProtection:Certificate") };
+        certificates.AddRange(options.PreviousCertificates.Select((c, i) => ((string?)c, $"DataProtection:PreviousCertificates:{i}")));
+        foreach (var (value, setting) in certificates)
+        {
+            using var certificate = DataProtectionCertificates.TryLoad(value, options.CertificatePassword, out var error);
+            if (certificate is null)
+            {
+                return ValidateOptionsResult.Fail($"{setting} can't be used: {error}");
+            }
+        }
+
+        return ValidateOptionsResult.Success;
+    }
+}
+
+/// <summary>Loads the certificates from their base64 settings.</summary>
+internal static class DataProtectionCertificates
+{
+    /// <summary>The certificate, or null with the reason if it isn't a usable PFX with a private key.</summary>
+    public static X509Certificate2? TryLoad(string? base64, string? password, out string? error)
+    {
+        error = null;
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String((base64 ?? string.Empty).Trim());
+        }
+        catch (FormatException)
+        {
+            error = "it isn't base64 (encode the .pfx file, e.g. base64 -i dataprotection.pfx).";
+            return null;
+        }
+
+        try
+        {
+            // Ephemeral keys aren't written to disk. macOS doesn't support them, so use the default there (local only).
+            var flags = OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet;
+            var certificate = X509CertificateLoader.LoadPkcs12(bytes, password, flags);
+            if (!certificate.HasPrivateKey)
+            {
+                error = "the PFX file has no private key.";
+                certificate.Dispose();
+                return null;
+            }
+
+            return certificate;
+        }
+        catch (CryptographicException ex)
+        {
+            error = $"it couldn't be read as a PFX file ({ex.Message}). Check the password.";
+            return null;
+        }
     }
 }
 
@@ -64,7 +106,7 @@ internal static class DataProtectionSetup
     public const string ApplicationName = "bjk-identity-server";
 
     /// <summary>
-    /// Data Protection with keys in SQL, wrapped with the Key Vault key when one is configured. The settings are
+    /// Data Protection with keys in SQL, encrypted with the certificate when one is configured. The settings are
     /// checked at startup (required outside Development).
     /// </summary>
     public static IServiceCollection AddBjkDataProtection(this IServiceCollection services, IConfiguration configuration)
@@ -74,15 +116,14 @@ internal static class DataProtectionSetup
             .SetApplicationName(ApplicationName)
             .PersistKeysToDbContext<BjkIdentityDbContext>();
 
-        if (settings.KeyVaultKeyUri is { } keyUri)
+        // A certificate that doesn't load is reported by the settings check at startup.
+        if (DataProtectionCertificates.TryLoad(settings.Certificate, settings.CertificatePassword, out _) is { } current)
         {
-            // Azure.Identity's credential (the managed identity in Azure), named explicitly: Azure.Core 1.55 has a
-            // type with the same name.
-            var credential = new AzureIdentity::Azure.Identity.DefaultAzureCredential(new AzureIdentity::Azure.Identity.DefaultAzureCredentialOptions
-            {
-                ManagedIdentityClientId = string.IsNullOrWhiteSpace(settings.ManagedIdentityClientId) ? null : settings.ManagedIdentityClientId,
-            });
-            builder.ProtectKeysWithAzureKeyVault(keyUri, credential);
+            var all = new List<X509Certificate2> { current };
+            all.AddRange(settings.PreviousCertificates
+                .Select(c => DataProtectionCertificates.TryLoad(c, settings.CertificatePassword, out _))
+                .OfType<X509Certificate2>());
+            builder.ProtectKeysWithCertificate(current).UnprotectKeysWithAnyCertificate([.. all]);
         }
 
         services.AddOptions<DataProtectionSettings>()
@@ -98,11 +139,11 @@ internal static class DataProtectionSetup
         // Raw configuration, not IOptions: reading the options here would run their startup check early, before
         // the other settings are checked with it.
         var settings = app.Configuration.GetSection(DataProtectionSettings.SectionName).Get<DataProtectionSettings>() ?? new();
-        if (settings.KeyVaultKeyUri is null && app.Environment.IsDevelopment())
+        if (string.IsNullOrWhiteSpace(settings.Certificate) && app.Environment.IsDevelopment())
         {
             app.Logger.LogWarning(
                 "Data Protection keys are stored in SQL without encryption at rest. That's fine for local development "
-                + "only; deployed environments set DataProtection:KeyVaultKeyId.");
+                + "only; deployed environments set DataProtection:Certificate.");
         }
     }
 }

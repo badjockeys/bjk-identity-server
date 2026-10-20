@@ -9,7 +9,7 @@ namespace BJK.Idsrv.Host.Services.Security;
 /// <summary>
 /// Encrypts the two-step secrets ASP.NET Identity keeps in <c>auth.AspNetUserTokens</c>: the authenticator app key
 /// and the recovery codes. Encrypted values are stored as <c>dp1:</c> plus a Data Protection payload (keys in SQL,
-/// wrapped by Key Vault in deployed environments). Values written before this existed are plain text; they're still
+/// encrypted with a certificate in deployed environments). Values written before this existed are plain text; they're still
 /// read, and <see cref="TwoFactorSecretsBackfill"/> encrypts them at startup.
 /// </summary>
 public sealed class TwoFactorSecretProtector(IDataProtectionProvider provider)
@@ -70,7 +70,7 @@ public sealed class ProtectedUserStore(BjkIdentityDbContext context, TwoFactorSe
 
 /// <summary>
 /// Encrypts two-step secrets stored in plain text before encryption was added. Runs once as the app starts, after
-/// migrations and after the settings checks (so a deployment without its Key Vault key stops before touching any
+/// migrations and after the settings checks (so a deployment without its Data Protection certificate stops before touching any
 /// secret). Safe to run on several instances at once and more than once: each row is only updated if it still holds
 /// the plain value that was read, so a secret changed in the meantime is never overwritten.
 /// </summary>

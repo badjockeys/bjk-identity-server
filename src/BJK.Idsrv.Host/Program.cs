@@ -26,7 +26,7 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString(ConnectionStringName)
     ?? throw new InvalidOperationException(
         $"Connection string '{ConnectionStringName}' is not configured. Locally, set it with dotnet user-secrets "
-        + "(see docs/local-development.md); in Azure it comes from the App Service settings.");
+        + "(see docs/local-development.md); when deployed it comes from the container's settings.");
 var hostAssembly = typeof(Program).Assembly.GetName().Name;
 
 // User lifecycle events are queued in bjk-core's database (its messaging schema), through a connection of their own.
@@ -77,7 +77,7 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 
 // Keys for cookies, antiforgery, two-factor tokens and the stored two-step secrets, shared by every instance through
-// the database and, outside Development, encrypted with an Azure Key Vault key (DataProtection:KeyVaultKeyId).
+// the database and, outside Development, encrypted with a certificate (DataProtection:Certificate).
 builder.Services.AddBjkDataProtection(builder.Configuration);
 
 // Social sign-in: each provider is switched on only when its keys are configured.

@@ -40,7 +40,7 @@ public static class SocialSignIn
                 options.TeamId = apple["TeamId"] ?? string.Empty;
                 options.KeyId = apple["KeyId"] ?? string.Empty;
 
-                // The .p8 key's contents (PEM). Secret: user secrets locally, Key Vault in Azure.
+                // The .p8 key's contents (PEM). Secret: user secrets locally, a container secret when deployed.
                 var privateKey = apple["PrivateKey"] ?? string.Empty;
                 options.GenerateClientSecret = true;
                 options.PrivateKey = (_, _) => Task.FromResult(privateKey.AsMemory());
