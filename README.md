@@ -65,6 +65,8 @@ Locally these come from .NET user secrets: load them from `user-secrets.template
 
 ### Going live
 
+**Outside Development the identity server refuses to start until every setting below has a live value**, and lists every problem at once (any `<...>` placeholder fails too). `dotnet BJK.Idsrv.Host.dll --check-settings` runs the same checks and exits 0 or 1 without touching the database; the deploy pipeline runs it with each environment's settings before rolling out. Test servers need real values too (SendGrid's `SandboxMode` for email).
+
 Secrets are container secrets; everything else is a container setting (Terraform). Nothing needs a cloud-specific service. Nested keys become environment variables with `__`, e.g. `Email__SendGrid__ApiKey`.
 
 | Setting | Live value | Still needed |

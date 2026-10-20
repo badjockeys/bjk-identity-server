@@ -8,6 +8,7 @@ using BJK.Idsrv.Host.Services.SignUp;
 using BJK.Idsrv.Host.Services.Support;
 using BJK.Modules.Email;
 using BJK.Modules.Shared;
+using BJK.Modules.Shared.Configuration;
 using BJK.Modules.Shared.Data;
 using BJK.Modules.Shared.Security;
 using BJK.Modules.User;
@@ -152,7 +153,29 @@ builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionS
 
 builder.Services.AddHealthChecks();
 
+// Outside Development the identity server refuses to start until every setting has a live value. The modules add
+// their own (Email:Provider must be SendGrid, the MediatR licence and so on); these are the host's.
+builder.Services.RequireWhenDeployed("Duende:LicenseKey", "the Duende IdentityServer licence key");
+builder.Services.RequireWhenDeployed("Email:PublicOrigin", "this server's https address, for links in emails", DeployedSettingChecks.IsHttps);
+builder.Services.RequireWhenDeployed("Email:PasswordResetUrl", "the https address of the reset password page", DeployedSettingChecks.IsHttps);
+builder.Services.RequireWhenDeployed("Clients:Web:RedirectUris:0", "the web app's https sign-in callback", DeployedSettingChecks.IsHttps);
+builder.Services.RequireWhenDeployed("Clients:Web:Secret", "the web app's client secret");
+builder.Services.RequireWhenDeployed(
+    "Captcha:TurnstileSecretKey", "the real Turnstile secret key, not one of Cloudflare's test keys", v => !TurnstileTestKeys.IsTestKey(v));
+builder.Services.RequireWhenDeployed(
+    "Captcha:TurnstileSiteKey", "the real Turnstile site key, not one of Cloudflare's test keys", v => !TurnstileTestKeys.IsTestKey(v));
+
 var app = builder.Build();
+
+// --check-settings: run every startup settings check and exit (0 when ready, 1 with every problem listed), without
+// touching the database. Deploy pipelines run it with the environment's settings before rolling out.
+if (SettingsCheck.Requested(args))
+{
+    return SettingsCheck.Run(app.Services);
+}
+
+// Check the settings before touching the database: outside Development a missing setting stops here.
+app.Services.GetService<Microsoft.Extensions.Options.IStartupValidator>()?.Validate();
 
 // Create the database if needed and apply schema changes. Never drops data (see DatabaseMigrator).
 await app.Services.MigrateDatabaseAsync<BjkIdentityDbContext>();
@@ -180,3 +203,4 @@ app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Redirect("/Manage"));
 
 app.Run();
+return 0;
