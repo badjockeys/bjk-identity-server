@@ -793,6 +793,20 @@ check_refuses_to_start "won't start outside Development without trusting Cloudfl
 check_refuses_to_start "won't start outside Development without a certificate for the Data Protection keys" "DataProtection:Certificate is required outside Development" ASPNETCORE_ENVIRONMENT=Production
 check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
 
+# --check-settings: passes with local settings in Development; anywhere else lists every missing setting and exits 1.
+dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1 \
+  || { cat check.log; fail "--check-settings failed in Development."; }
+grep -q "Settings check passed" check.log || fail "--check-settings didn't say it passed."
+echo "ok  --check-settings passes in Development"; PASSED+=("--check-settings passes in Development")
+if ASPNETCORE_ENVIRONMENT=Production dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1; then
+  cat check.log; fail "--check-settings passed in Production with local settings."
+fi
+for expected in "Duende:LicenseKey is missing" "Email:Provider must be SendGrid" "Captcha:TurnstileSecretKey must be the real Turnstile secret key" \
+  "DataProtection:Certificate is required outside Development"; do
+  grep -qF "$expected" check.log || { cat check.log; fail "--check-settings in Production didn't report: $expected"; }
+done
+echo "ok  --check-settings in Production lists every missing setting"; PASSED+=("--check-settings in Production lists every missing setting")
+
 # ---------- summary ----------
 
 ACCOUNTS_QUERY="SELECT CONCAT(LOWER(CONVERT(nvarchar(36), a.Id)), ' | ', u.Email, ' | ', a.Status) FROM users.Accounts a JOIN auth.AspNetUsers u ON LOWER(CONVERT(nvarchar(36), a.Id)) = LOWER(u.Id) ORDER BY a.CreatedAt"
