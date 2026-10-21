@@ -24,9 +24,7 @@ env:
   # only read the subscriptions and add queue rows. The smoke test creates the tables and the login as bjk-core would.
   MESSAGING_LOGIN: bjk_idsrv_messaging
   MESSAGING_PASSWORD: Ci-Messag1ng-2026
-  ConnectionStrings__Messaging: Server=localhost,1433;Database=badjockeys;User Id=bjk_idsrv_messaging;Password=Ci-Messag1ng-2026;TrustServerCertificate=True
-  Messaging__ConnectionStringName: Messaging
-  Messaging__CreateTables: "false"
+  ConnectionStrings__BadJockeysDatabase: Server=localhost,1433;Database=badjockeys;User Id=bjk_idsrv_messaging;Password=Ci-Messag1ng-2026;TrustServerCertificate=True
   # Same settings developers keep in user secrets (see user-secrets.template.json).
   Email__FromAddress: no-reply@badjockeys.local
   Email__PasswordResetUrl: http://localhost:3000/reset-password

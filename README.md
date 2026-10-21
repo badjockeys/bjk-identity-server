@@ -47,19 +47,19 @@ Locally everything comes from your user secrets (`user-secrets.template.json`, l
 | `Duende:LicenseKey` | Not needed for development or testing; required in production. The free Community Edition covers companies under $1M revenue. |
 | `MediatR:LicenseKey` | MediatR 13+ licence key; free Community licence under $5M revenue. |
 | `Database:AllowDestructiveMigrations` | Default `false`. |
-| `Email:Provider` | `Log` (default): emails aren't sent; in Development they're written to the log. `SendGrid`: sent through SendGrid (needs `Email:SendGrid:ApiKey`, secret). |
+| `Email:SendGrid:ApiKey` | Secret. Set: emails go through SendGrid. Empty: they aren't sent; in Development they're written to the log (refused outside Development). |
 | `Email:LogoUrl`, `Email:ReplyToAddress` | Optional: PNG logo at the top of emails, and a reply-to address. |
-| `SMS:Provider` | `Log` (default): texts aren't sent; in Development they're written to the log (with the code, so you can confirm a number locally). `Twilio`: sent through Twilio (needs `SMS:Twilio:AccountSid`, `ApiKeySid`, `ApiKeySecret` (secret) and `MessagingServiceSid`). Used to confirm mobile numbers. |
+| `SMS:Twilio:AccountSid`, `ApiKeySid`, `ApiKeySecret` (secret), `MessagingServiceSid` | Set: texts go through Twilio (used to confirm mobile numbers). Empty: they aren't sent; in Development they're written to the log with the code, so you can confirm a number locally (refused outside Development). |
 | `Email:FromAddress`, `Email:PasswordResetUrl` | Sender address, and the web app page that reset links point to. |
-| `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` (`Messaging`), `Messaging:CreateTables` (`false`) | Required. User lifecycle events (deactivated, reactivated, deleted) are saved in `users.Outbox` with the account change, then published to the `bjk.users` topic: a row in bjk-core's queue table `[messaging].[bjk-core.user-events]` in the app database (`badjockeys`). The app won't start without it. In Azure this connection uses its own database user in `badjockeys` with `SELECT` on `messaging.subscriptions` and `INSERT` on the `messaging` schema only, so the identity server can queue events but can't read or change bjk-core's data (setup script in the bjk-modules README, "Messaging"). Events wait in the outbox until bjk-core has started once and subscribed. |
+| `ConnectionStrings:BadJockeysDatabase` | Required. User lifecycle events (deactivated, reactivated, deleted) are saved in `users.Outbox` with the account change, then published to the `bjk.users` topic: a row in bjk-core's queue table `[messaging].[bjk-core.user-events]` in the app database (`badjockeys`). The app won't start without it. In Azure this connection uses its own database user in `badjockeys` with `SELECT` on `messaging.subscriptions` and `INSERT` on the `messaging` schema only, so the identity server can queue events but can't read or change bjk-core's data (setup script in the bjk-modules README, "Messaging"). The identity server never creates queue tables (set in code). Events wait in the outbox until bjk-core has started once and subscribed. |
 | `Users:DeactivationGracePeriod`, `Users:RetentionCheckInterval` | Defaults: 90 days before a deactivated account is deleted; check hourly. |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Each app's redirect addresses (and secret for web and back-office). A client only exists when its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Accounts made Admin at startup (must exist with a confirmed email). For appointing the first admin. |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Social sign-in keys. Each provider is switched on only when its keys are set. |
 | `Email:PublicOrigin` | This server's public address, for links in emails. |
 | `Captcha:TurnstileSiteKey` | Turnstile site key for the widget on the sign-up, forgot password and reactivate pages. |
-| `SignUp:AllowedCountries`, `SignUp:TrustCloudflareCountryHeader`, `SignUp:DevelopmentCountry` | New accounts are UK-only at launch. The country comes from Cloudflare's `CF-IPCountry` header. Defaults: `["GB"]`; `false`, which **must be `true` outside Development** (the app won't start otherwise); none. Outside the list, or with no header, sign-up shows "only open for new accounts in the UK for now" and the API returns 403. Viewing and signing in to existing accounts work from anywhere. Only the country code and outcome are logged, never the IP. |
-| `AgeAssurance:*` | Providers and rules for the on-demand age check (sensitive posts only; sign-up has no selfie). Locally, the `Development` providers (from the template) pretend to check and answer a set age. **Outside Development the app won't start with them**: set `AgeAssurance:Liveness:Provider` to `YuNet` (plus `AgeAssurance:Liveness:YuNet:ModelPath`, and ffmpeg in the image), `AgeAssurance:Estimator:Provider` to `Http` (plus `Endpoint` and `ApiKey`, secret), and a real `AgeAssurance:Document:Provider`. See "Age check" in docs/local-development.md and the bjk-modules README. |
+| `SignUp:AllowedCountries`, `SignUp:DevelopmentCountry` | New accounts are UK-only at launch. The country comes from Cloudflare's `CF-IPCountry` header, always trusted outside Development (Cloudflare fronts every request). Defaults: `["GB"]`; none. `DevelopmentCountry` is local only (refused elsewhere): with no header, pretend to be in that country. Outside the list, or with no header when deployed, sign-up shows "only open for new accounts in the UK for now" and the API returns 403. Viewing and signing in to existing accounts work from anywhere. Only the country code and outcome are logged, never the IP. |
+| `AgeAssurance:*` | The on-demand age check (sensitive posts only; sign-up has no selfie). No provider switches: `AgeAssurance:Liveness:ModelPath` (the YuNet model; ffmpeg in the image) turns on the real head-turn check, and `AgeAssurance:Yoti:SdkId` and `PrivateKey` (secret) turn on Yoti's face age estimate. Without them, Development uses stand-ins that answer `AgeAssurance:Development`'s values; **outside Development the app won't start**. See "Age check" in docs/local-development.md and the bjk-modules README. |
 | `Support:Email` | Default `support@badjockeys.com`; checked at startup. The "Contact support" link after a failed age check opens an email to it, with the attempt's reference (`AGE-XXXXXX`) in the subject. It's a mailto link for now; a ticketing system (e.g. Zammad, Freshdesk or Help Scout) replaces it once email passes about 50 tickets a week. |
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. |
 
@@ -74,24 +74,21 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | Setting | Live value | Still needed |
 |---|---|---|
 | `ConnectionStrings:IdentityDatabase` (secret) | Azure SQL `idsrv` with its own SQL login, `Encrypt=True` | The live server |
-| `ConnectionStrings:Messaging` (secret) | The `badjockeys` database, with the restricted messaging login | The live server |
+| `ConnectionStrings:BadJockeysDatabase` (secret) | The `badjockeys` database, with the restricted messaging login | The live server |
 | `Duende:LicenseKey` (secret) | The Community Edition key | Apply for it |
 | `MediatR:LicenseKey` (secret) | The licence key | Get one |
 | `DataProtection:Certificate`, `CertificatePassword` (secrets) | A self-signed certificate made once (see [Encryption](#encryption)) | Make it and keep a safe copy |
-| `Email:Provider` | `SendGrid`. **`Log` is the default in every environment**, so without this nothing is sent | A SendGrid account |
 | `Email:SendGrid:ApiKey` (secret) | A key with Mail Send only | A SendGrid account |
 | `Email:FromAddress`, `Email:ReplyToAddress`, `Email:LogoUrl` | e.g. `no-reply@badjockeys.com` (verified domain), `support@badjockeys.com`, a PNG logo URL | Domain verified in SendGrid |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | e.g. `https://auth.badjockeys.com`, `https://auth.badjockeys.com/Account/ResetPassword` | The live domain |
-| `SMS:Provider` | `Twilio` (`Log` is the default, and refused outside Development) | A Twilio account |
 | `SMS:Twilio:AccountSid`, `ApiKeySid`, `ApiKeySecret` (secret), `MessagingServiceSid` | An API key rather than the auth token; a Messaging Service with the UK sender ID (the same as bjk-core's) | A Twilio account; the UK sender ID registered |
 | `Captcha:TurnstileSecretKey` (secret), `Captcha:TurnstileSiteKey` | The real Turnstile widget's keys | A Cloudflare account |
 | `Clients:Web` | `RedirectUris` e.g. `https://badjockeys.com/api/auth/callback/bjk`, `PostLogoutRedirectUris` `https://badjockeys.com/`, `Secret` (secret, matches the web app's `IDSRV_CLIENT_SECRET`) | The live domain |
 | `Clients:Backoffice` | The back office's addresses and secret | The back office (not built) |
 | `Authentication:Google`, `:Apple`, `:Facebook` (secrets) | Optional; each stays off until its keys are set | Developer accounts, if wanted |
-| `SignUp:TrustCloudflareCountryHeader` | `true` (required outside Development) | Cloudflare in front |
-| `AgeAssurance:Liveness:Provider` | `YuNet`, with `YuNet:ModelPath` and ffmpeg in the image | The model in the image |
-| `AgeAssurance:Estimator:Provider` | `Http`, with `Http:Name`, `Endpoint` and `ApiKey` (secret) | An age estimation vendor |
-| `AgeAssurance:Document:Provider` | A photo-ID provider | **Not built yet**: choose a vendor and add an `IDocumentAgeCheck` |
+| `AgeAssurance:Liveness:ModelPath` | The YuNet model's path in the image (ffmpeg in the image too) | The model in the image |
+| `AgeAssurance:Yoti:SdkId`, `PrivateKey` (secret), `BaseUrl` | From the Yoti Hub; Yoti's sandbox address for DEV and QA, live for Staging and Live | A Yoti account |
+| Photo ID | **Not built yet**: Yoti's document check needs their hosted session flow. Until it's built, deployed environments won't start | Build it |
 | `Admin:BootstrapEmails` | The first admin's confirmed email | |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` (secret), `OTEL_EXPORTER_OTLP_PROTOCOL` | Grafana Cloud's OTLP address (https), `Authorization=Basic <instance id:token, base64>`, `http/protobuf`. Locally `launchSettings.json` sends to bjk-core's `otel-lgtm` container (http://localhost:4318) | A Grafana Cloud stack |
 

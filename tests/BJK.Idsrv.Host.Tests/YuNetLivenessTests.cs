@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using BJK.Idsrv.Host.Services.AgeAssurance;
-using BJK.Modules.User;
 using BJK.Modules.User.Infrastructure.AgeAssurance;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -169,11 +168,9 @@ public sealed class HeadTurnAnalyzerTests
 public sealed class YuNetLivenessOptionsValidatorTests
 {
     [Fact]
-    public void The_model_is_required_when_YuNet_is_selected()
+    public void A_model_path_that_doesnt_exist_is_refused()
     {
-        var ageAssurance = new AgeAssuranceOptions();
-        ageAssurance.Liveness.Provider = "YuNet";
-        var validator = new YuNetLivenessOptionsValidator(Options.Create(ageAssurance));
+        var validator = new YuNetLivenessOptionsValidator();
 
         var result = validator.Validate(null, new YuNetLivenessOptions { ModelPath = "/nowhere/yunet.onnx" });
 
@@ -182,11 +179,15 @@ public sealed class YuNetLivenessOptionsValidatorTests
     }
 
     [Fact]
-    public void Nothing_is_required_when_another_provider_is_selected()
+    public void Without_a_model_path_nothing_is_checked_and_the_checker_isnt_configured()
     {
-        var validator = new YuNetLivenessOptionsValidator(Options.Create(new AgeAssuranceOptions()));
-
-        Assert.True(validator.Validate(null, new YuNetLivenessOptions()).Succeeded);
+        Assert.True(new YuNetLivenessOptionsValidator().Validate(null, new YuNetLivenessOptions()).Succeeded);
+        Assert.False(new YuNetLivenessChecker(
+            Options.Create(new YuNetLivenessOptions()),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<YuNetLivenessChecker>.Instance).IsConfigured);
+        Assert.True(new YuNetLivenessChecker(
+            Options.Create(new YuNetLivenessOptions { ModelPath = "/models/yunet.onnx" }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<YuNetLivenessChecker>.Instance).IsConfigured);
     }
 }
 
