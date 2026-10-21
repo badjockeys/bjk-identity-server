@@ -1,5 +1,5 @@
 using System.ComponentModel.DataAnnotations;
-using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Modules.Safety;
 using BJK.Modules.User.UseCases.Reset;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
