@@ -9,6 +9,8 @@
     <PackageReference Include="BJK.Modules.User" />
     <PackageReference Include="BJK.Modules.Email" />
     <PackageReference Include="BJK.Modules.SMS" />
+    <PackageReference Include="BJK.Modules.Queues" />
+    <PackageReference Include="BJK.Modules.Observability" />
     <PackageReference Include="Duende.IdentityServer.AspNetIdentity" />
     <PackageReference Include="Duende.IdentityServer.EntityFramework" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
