@@ -27,8 +27,8 @@ const string MigrationsHistoryTable = "__EFMigrationsHistory";
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Logs, traces and metrics over OTLP: locally the otel-lgtm container in bjk-core's Docker group (launchSettings.json),
-// Grafana Cloud when deployed. See "Logs, traces and metrics" in the bjk-modules README.
+// Logs, traces and metrics over OTLP: locally Elastic's OpenTelemetry collector in bjk-core's Docker group
+// (launchSettings.json), Elastic Cloud when deployed. See "Logs, traces and metrics" in the bjk-modules README.
 builder.AddBjkObservability("bjk-identity-server");
 
 var connectionString = builder.Configuration.GetConnectionString(ConnectionStringName)

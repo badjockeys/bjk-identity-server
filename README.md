@@ -90,7 +90,7 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | `AgeAssurance:Yoti:SdkId`, `PrivateKey` (secret), `BaseUrl` | From the Yoti Hub; Yoti's sandbox address for DEV and QA, live for Staging and Live | A Yoti account |
 | Photo ID | **Not built yet**: Yoti's document check needs their hosted session flow. Until it's built, deployed environments won't start | Build it |
 | `Admin:BootstrapEmails` | The first admin's confirmed email | |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` (secret), `OTEL_EXPORTER_OTLP_PROTOCOL` | Grafana Cloud's OTLP address (https), `Authorization=Basic <instance id:token, base64>`, `http/protobuf`. Locally `launchSettings.json` sends to bjk-core's `otel-lgtm` container (http://localhost:4318) | A Grafana Cloud stack |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` (secret), `OTEL_EXPORTER_OTLP_PROTOCOL` | Elastic Cloud's managed OTLP endpoint (https), `Authorization=ApiKey <key>`, `http/protobuf`. Locally `launchSettings.json` sends to Elastic's OpenTelemetry collector in bjk-core's Docker group (http://localhost:4318; view in Kibana at http://localhost:5601) | An Elastic Cloud Serverless Observability project |
 
 ## Mobile number
 
