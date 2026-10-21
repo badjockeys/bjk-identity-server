@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using BJK.Modules.User;
 using BJK.Modules.User.Infrastructure.AgeAssurance;
 using Microsoft.Extensions.Options;
 using Microsoft.ML.OnnxRuntime;
@@ -7,14 +6,17 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace BJK.Idsrv.Host.Services.AgeAssurance;
 
-/// <summary>Section <c>AgeAssurance:Liveness:YuNet</c>, used when <c>AgeAssurance:Liveness:Provider</c> is <c>YuNet</c>.</summary>
+/// <summary>
+/// Section <c>AgeAssurance:Liveness</c>. The YuNet check runs when <see cref="ModelPath"/> is set; without it the
+/// User module's stand-in is used locally, and deployed environments refuse to start.
+/// </summary>
 public sealed class YuNetLivenessOptions
 {
-    public const string SectionName = "AgeAssurance:Liveness:YuNet";
+    public const string SectionName = "AgeAssurance:Liveness";
 
     /// <summary>
-    /// Path to OpenCV Zoo's face_detection_yunet_2023mar.onnx (MIT licence, about 230 KB). Required when YuNet is
-    /// selected; see docs/local-development.md for where to get it.
+    /// Path to OpenCV Zoo's face_detection_yunet_2023mar.onnx (MIT licence, about 230 KB). Set: the real check runs.
+    /// The setup downloads it; see docs/local-development.md.
     /// </summary>
     public string? ModelPath { get; set; }
 
@@ -79,6 +81,8 @@ public sealed class YuNetLivenessChecker(
     public string Name => ProviderName;
 
     public bool IsDevelopmentOnly => false;
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(options.Value.ModelPath) && !options.Value.ModelPath.TrimStart().StartsWith('<');
 
     public async Task<LivenessResult> CheckAsync(SelfieVideo video, CancellationToken cancellationToken)
     {
@@ -288,7 +292,7 @@ public sealed class YuNetFaceDetector : IDisposable
     private static int RoundTo32(int value) => Math.Max(32, (value + 31) / 32 * 32);
 }
 
-/// <summary>Registers the YuNet liveness checker and checks its settings at startup when it's selected.</summary>
+/// <summary>Registers the YuNet liveness checker and checks its settings at startup when its model is set.</summary>
 public static class YuNetLivenessServiceCollectionExtensions
 {
     /// <summary>Adds <see cref="YuNetLivenessChecker"/> as an <see cref="ILivenessChecker"/> named "YuNet".</summary>
@@ -306,20 +310,21 @@ public static class YuNetLivenessServiceCollectionExtensions
     }
 }
 
-/// <summary>When YuNet is the selected liveness checker, the model file must exist; the app won't start otherwise.</summary>
-internal sealed class YuNetLivenessOptionsValidator(IOptions<AgeAssuranceOptions> ageAssurance) : IValidateOptions<YuNetLivenessOptions>
+/// <summary>When the model path is set, the file must exist; the app won't start otherwise.</summary>
+internal sealed class YuNetLivenessOptionsValidator : IValidateOptions<YuNetLivenessOptions>
 {
     public ValidateOptionsResult Validate(string? name, YuNetLivenessOptions options)
     {
-        if (!string.Equals(ageAssurance.Value.Liveness.Provider, YuNetLivenessChecker.ProviderName, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(options.ModelPath) || options.ModelPath.TrimStart().StartsWith('<'))
         {
+            // Not set (a template placeholder counts as not set): the stand-in is used locally.
             return ValidateOptionsResult.Success;
         }
 
         var failures = new List<string>();
-        if (string.IsNullOrWhiteSpace(options.ModelPath) || !File.Exists(options.ModelPath))
+        if (!File.Exists(options.ModelPath))
         {
-            failures.Add($"{YuNetLivenessOptions.SectionName}:ModelPath must point to face_detection_yunet_2023mar.onnx when the liveness provider is YuNet.");
+            failures.Add($"{YuNetLivenessOptions.SectionName}:ModelPath must point to face_detection_yunet_2023mar.onnx (no file at '{options.ModelPath}').");
         }
 
         if (string.IsNullOrWhiteSpace(options.FfmpegPath))

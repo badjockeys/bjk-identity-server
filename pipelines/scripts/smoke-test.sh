@@ -5,15 +5,14 @@
 # retention job deletes accounts whose grace period has ended. Age policy (19 Oct 2026): sign-up asks for the date
 # of birth (13+, under 13 refused and not kept; no selfie at sign-up), tokens carry minor=true for under-18s, and the
 # age check is on demand for sensitive posts. It runs with the Development providers: an estimate of 30 passes; on
-# the restart, estimates of 15 (and an ID saying 16) fail. The same restart trusts Cloudflare's CF-IPCountry header:
-# sign-up from GB works, from FR or with no header it's refused.
+# the restart, estimates of 15 (and an ID saying 16) fail. The same restart sends Cloudflare's CF-IPCountry header:
+# sign-up from GB works, from FR it's refused.
 #
 # Expects the app to be built (Release) and these environment variables:
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
 #   SQL_CONTAINER, SQL_PASSWORD          docker container running SQL Server, and its sa password
 #   ASPNETCORE_ENVIRONMENT=Development   (the local test clients only exist in Development)
-#   ConnectionStrings__Messaging         bjk-core's database (badjockeys) as MESSAGING_LOGIN, where events are queued
-#   Messaging__ConnectionStringName=Messaging, Messaging__CreateTables=false
+#   ConnectionStrings__BadJockeysDatabase  bjk-core's database (badjockeys) as MESSAGING_LOGIN, where events are queued
 #   MESSAGING_LOGIN, MESSAGING_PASSWORD  the restricted login this script creates for that connection
 # bjk-core doesn't run here, so the script creates its queue table and subscription the way bjk-core does on startup.
 set -euo pipefail
@@ -677,13 +676,11 @@ stop_app
 
 # ---------- sign-up is UK-only; age check: under 18 ----------
 
-# Restarted as if behind Cloudflare (the CF-IPCountry header is trusted), with Development age check providers
-# that see someone under 18: an estimate of 15 and an ID saying 16.
-start_app SignUp__TrustCloudflareCountryHeader=true AgeAssurance__Estimator__Development__Age=15 AgeAssurance__Document__Development__Age=16
+# Restarted with the age check stand-ins seeing someone under 18: an estimate of 15 and an ID saying 16. The requests
+# send Cloudflare's CF-IPCountry header, as they would when deployed. (A missing header is refused only outside
+# Development, where Cloudflare always sends it: covered by the unit tests.)
+start_app AgeAssurance__Development__EstimatedAge=15 AgeAssurance__Development__DocumentAge=16
 
-COUNTRY=""
-request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
-expect 403 "sign-up without a country header is refused"
 COUNTRY=FR
 request POST /api/users "$(body --arg e "$EMAIL3" --arg p "$PASSWORD" --arg d "$ADULT_DOB" '{email: $e, password: $p, dateOfBirth: $d}')"
 expect 403 "sign-up from France is refused"
@@ -704,7 +701,6 @@ STATUS=$(curl -s -o response.json -w '%{http_code}' -X POST "$BASE_URL/connect/t
 RESPONSE=$(cat response.json)
 expect 200 "an existing account signs in from France"
 grep -q "Sign-up country check: FR refused" "$APP_LOG" || fail "Expected the refusal to be logged with the country code."
-grep -q "Sign-up country check: none refused" "$APP_LOG" || fail "Expected the missing header to be logged."
 if grep "Sign-up country check" "$APP_LOG" | grep -qE "127\.0\.0\.1|::1"; then fail "The country check logged an IP address."; fi
 echo "ok  the country check logs only the country and outcome"
 PASSED+=("country check logs country and outcome, no IP")
@@ -785,13 +781,13 @@ check_refuses_to_start() {
   tail -n +"$((mark + 1))" "$APP_LOG" | grep -q "$expected" || fail "$label: expected the log to say '$expected'."
   echo "ok  $label"; PASSED+=("$label")
 }
-check_refuses_to_start "won't start with SendGrid but no API key" "Email:SendGrid:ApiKey is required" Email__Provider=SendGrid
-check_refuses_to_start "won't start without bjk-core's messaging connection" "Messaging:ConnectionStringName must name" Messaging__ConnectionStringName=
-# The Development age check providers don't check anyone's age, so only Development may use them.
-check_refuses_to_start "won't start outside Development with the Development age check" "is for local development only" ASPNETCORE_ENVIRONMENT=Production
-check_refuses_to_start "won't start outside Development without trusting Cloudflare's country header" "SignUp:TrustCloudflareCountryHeader must be true" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start with a SendGrid key but no sender" "Email:FromAddress is required" Email__SendGrid__ApiKey=SG.ci Email__FromAddress=
+check_refuses_to_start "won't start without bjk-core's database for the queues" "Connection string 'BadJockeysDatabase' is not configured" ConnectionStrings__BadJockeysDatabase=
+# The age check stand-ins don't check anyone's age, so only Development may use them.
+check_refuses_to_start "won't start outside Development without real age check providers" "has no real provider" ASPNETCORE_ENVIRONMENT=Production
+check_refuses_to_start "won't start outside Development with the local sign-up country" "SignUp:DevelopmentCountry is for local development only" ASPNETCORE_ENVIRONMENT=Production SignUp__DevelopmentCountry=GB
 check_refuses_to_start "won't start outside Development without a certificate for the Data Protection keys" "DataProtection:Certificate is required outside Development" ASPNETCORE_ENVIRONMENT=Production
-check_refuses_to_start "won't start with YuNet but no model" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__Provider=YuNet
+check_refuses_to_start "won't start with a liveness model path that doesn't exist" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__ModelPath=/nowhere/yunet.onnx
 
 # --check-settings: passes with local settings in Development; anywhere else lists every missing setting and exits 1.
 dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1 \
@@ -801,7 +797,8 @@ echo "ok  --check-settings passes in Development"; PASSED+=("--check-settings pa
 if ASPNETCORE_ENVIRONMENT=Production dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1; then
   cat check.log; fail "--check-settings passed in Production with local settings."
 fi
-for expected in "Duende:LicenseKey is missing" "Email:Provider must be SendGrid" "Captcha:TurnstileSecretKey must be the real Turnstile secret key" \
+for expected in "Duende:LicenseKey is missing" "Email:SendGrid:ApiKey is missing" "SMS:Twilio:AccountSid is missing" \
+  "Captcha:TurnstileSecretKey must be the real Turnstile secret key" \
   "DataProtection:Certificate is required outside Development"; do
   grep -qF "$expected" check.log || { cat check.log; fail "--check-settings in Production didn't report: $expected"; }
 done

@@ -11,6 +11,7 @@ using BJK.Modules.Shared;
 using BJK.Modules.Shared.Configuration;
 using BJK.Modules.Shared.Observability;
 using BJK.Modules.Shared.Data;
+using BJK.Modules.Shared.Messaging;
 using BJK.Modules.Shared.Security;
 using BJK.Modules.SMS;
 using BJK.Modules.User;
@@ -36,17 +37,17 @@ var connectionString = builder.Configuration.GetConnectionString(ConnectionStrin
         + "(see docs/local-development.md); when deployed it comes from the container's settings.");
 var hostAssembly = typeof(Program).Assembly.GetName().Name;
 
-// User lifecycle events are queued in bjk-core's database (its messaging schema), through a connection of their own.
-var messagingConnectionName = builder.Configuration["Messaging:ConnectionStringName"];
-if (string.IsNullOrWhiteSpace(messagingConnectionName)
-    || string.Equals(messagingConnectionName, ConnectionStringName, StringComparison.OrdinalIgnoreCase)
-    || string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(messagingConnectionName)))
+// User lifecycle events are queued in bjk-core's database (its messaging schema), through a connection of their own
+// whose login may only use the queue tables bjk-core created.
+const string QueuesConnectionStringName = "BadJockeysDatabase";
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(QueuesConnectionStringName)))
 {
     throw new InvalidOperationException(
-        "Messaging:ConnectionStringName must name the connection string for bjk-core's app database (normally "
-        + "'Messaging', with ConnectionStrings:Messaging set), where user lifecycle events are queued for bjk-core. "
-        + "Locally, set both with dotnet user-secrets (see docs/local-development.md).");
+        $"Connection string '{QueuesConnectionStringName}' is not configured: bjk-core's database, where user events are "
+        + "queued for bjk-core. Locally it's in user-secrets.json (see docs/local-development.md).");
 }
+
+builder.Services.UseQueuesIn(QueuesConnectionStringName, createTables: false);
 
 // --- Sign-in accounts: ASP.NET Core Identity (schema "auth") ---
 builder.Services.AddDbContext<BjkIdentityDbContext>(options => options.UseSqlServer(
@@ -143,8 +144,8 @@ builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<LoginFlow>();
 // Where people ask for help (Support:Email), e.g. the "Contact support" link after a failed age check.
 builder.Services.AddSupport(builder.Configuration);
-// The open-source YuNet liveness checker (AgeAssurance:Liveness:Provider=YuNet), used inside the on-demand age check
-// against spoofing; the User module adds the rest and refuses Development providers outside Development.
+// The open-source YuNet liveness checker, used inside the on-demand age check against spoofing when
+// AgeAssurance:Liveness:ModelPath is set; the User module adds Yoti and the stand-ins (Development only).
 builder.Services.AddYuNetLiveness(builder.Configuration);
 builder.Services.Configure<AdminBootstrapOptions>(builder.Configuration.GetSection(AdminBootstrapOptions.SectionName));
 
@@ -155,13 +156,13 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizePage("/Account/CheckAge");
     options.Conventions.AuthorizePage("/Account/DateOfBirth");
 });
-// SMS: confirming the optional mobile number (Manage/MobileNumber). Outside Development SMS:Provider must be Twilio.
+// SMS: confirming the optional mobile number (Manage/MobileNumber). Outside Development Twilio must be set up.
 builder.Services.AddBjkModules(builder.Configuration, new UserModule(ConnectionStringName), new EmailModule(), new SMSModule());
 
 builder.Services.AddHealthChecks();
 
 // Outside Development the identity server refuses to start until every setting has a live value. The modules add
-// their own (Email:Provider must be SendGrid, the MediatR licence and so on); these are the host's.
+// their own (the SendGrid key, the MediatR licence and so on); these are the host's.
 builder.Services.RequireWhenDeployed("Duende:LicenseKey", "the Duende IdentityServer licence key");
 builder.Services.RequireWhenDeployed("Email:PublicOrigin", "this server's https address, for links in emails", DeployedSettingChecks.IsHttps);
 builder.Services.RequireWhenDeployed("Email:PasswordResetUrl", "the https address of the reset password page", DeployedSettingChecks.IsHttps);

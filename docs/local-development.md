@@ -68,15 +68,15 @@ dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all the
 | Setting | Local value |
 |---|---|
 | `ConnectionStrings:IdentityDatabase` | The Docker SQL Server, with your password from `bjk-core/.env` |
-| `Email:Provider` | `Log`: emails go to the console instead of being sent (see Email below). Leave the SendGrid placeholder unless you switch provider. |
+| `Email:SendGrid:ApiKey` | Empty: emails go to the console instead of being sent (see Email below). |
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
 | `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
-| `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName`, `Messaging:CreateTables` | bjk-core's `badjockeys` database in the same Docker SQL Server, where user lifecycle events are queued for bjk-core. Locally `sa`; in Azure a login that may only add rows to the queue tables (see the bjk-modules README, "Messaging"). |
+| `ConnectionStrings:BadJockeysDatabase` | bjk-core's `badjockeys` database in the same Docker SQL Server, where user lifecycle events are queued for bjk-core. Locally `sa`; in Azure a login that may only add rows to the queue tables (see the bjk-modules README, "Messaging"). |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
 | `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
-| `SignUp:*` | UK-only sign-up. Locally the Cloudflare country header isn't trusted, so sign-up is allowed (see UK-only sign-up below) |
-| `AgeAssurance:*` | The `Development` age check providers, which pretend to check and answer age 30 (see Age policy below) |
+| `SignUp:*` | UK-only sign-up. Locally there's no Cloudflare header, so sign-up is allowed (see UK-only sign-up below) |
+| `AgeAssurance:*` | The real head-turn check (the setup sets `Liveness:ModelPath`), and stand-ins for Yoti that answer age 30 (`Development`; see Age policy below) |
 | `Support:Email` | Where "Contact support" emails go. Default `support@badjockeys.com` |
 | `DataProtection:*` | Leave empty locally. The Data Protection keys are then stored unencrypted, and the app logs a warning. Deployed environments encrypt them with a certificate (see Encryption in the README) |
 | `Authentication:Google`, `:Apple`, `:Facebook` | Leave empty until you have keys; each provider's button appears once its keys are set (see Social sign-in) |
@@ -165,26 +165,22 @@ A first social sign-in creates an account with the provider's email (already con
 
 At launch, new accounts can only be created from the UK. Anyone can still watch posts, and existing accounts sign in from anywhere (people travel). The rule covers the sign-up page, a first Google, Apple or Facebook sign-in, and `POST /api/users`.
 
-In the deployed environments Cloudflare adds a `CF-IPCountry` header with the visitor's country, and `SignUp:TrustCloudflareCountryHeader` is `true`. A country outside `SignUp:AllowedCountries` (default `["GB"]`), Cloudflare's "unknown" (`XX`) or Tor (`T1`), or no header at all, means no account:
+In the deployed environments Cloudflare adds a `CF-IPCountry` header with the visitor's country, and the identity server always trusts it there (Cloudflare fronts every request). A country outside `SignUp:AllowedCountries` (default `["GB"]`), Cloudflare's "unknown" (`XX`) or Tor (`T1`), or no header at all, means no account:
 - the pages show `/Account/SignUpUnavailable` ("Bad Jockeys is only open for new accounts in the UK for now. You can still watch posts.");
 - the API returns 403 with that message.
 
 The log records only the country code and the outcome, e.g. `Sign-up country check: FR refused`, never the IP address.
 
-Locally there's no Cloudflare, so the header isn't trusted and sign-up is allowed. To see the refusal, pretend to be elsewhere:
+Locally there's no Cloudflare, so there's no header and sign-up is allowed. To see the refusal, pretend to be elsewhere (in your user-secrets.json, then run the setup, or for this session only):
 
 ```bash
 dotnet user-secrets set "SignUp:DevelopmentCountry" "FR" --project src/BJK.Idsrv.Host   # refused
 dotnet user-secrets remove "SignUp:DevelopmentCountry" --project src/BJK.Idsrv.Host      # allowed again
 ```
 
-Or trust the header and send it yourself (e.g. `CF-IPCountry: FR` in the `.http` file):
+Or send the header yourself (e.g. `CF-IPCountry: FR` in the `.http` file): a header is read locally too.
 
-```bash
-dotnet user-secrets set "SignUp:TrustCloudflareCountryHeader" "true" --project src/BJK.Idsrv.Host
-```
-
-Outside Development the app refuses to start unless `SignUp:TrustCloudflareCountryHeader` is `true`. Without Cloudflare in front, anyone could fake the header. `SignUp:DevelopmentCountry` is refused there too.
+`SignUp:DevelopmentCountry` is refused outside Development.
 
 ### Age policy
 
@@ -214,20 +210,21 @@ The rules (from the User module):
 
 The video and photo stay in memory and are wiped after the check. Only the outcome is stored, in `users.Accounts` (`AgeCheckStatus`, `AgeCheckMethod`, `AgeCheckResult`, `AgeCheckProvider`, `AgeCheckRecordedAt`).
 
-**Locally** the template selects the `Development` providers:
-- the liveness check accepts any video;
-- the age estimate and the photo ID both say 30.
+**Locally** there are no Yoti keys, so stand-ins answer instead:
+- the liveness check is the real one (the setup downloads the YuNet model and sets `AgeAssurance:Liveness:ModelPath`); without the model a stand-in accepts any video;
+- the age estimate and the photo ID both say 30 (`AgeAssurance:Development`).
 
 So you can test without a vendor. On a laptop the page works on `https://localhost:5001`, since browsers only allow the camera over HTTPS or on localhost.
 
-To try each path, change the answers and restart:
+To try each path, change the answers in `AgeAssurance:Development` in your user-secrets.json, run the setup (or `dotnet user-secrets set` for this session) and restart:
 
 ```bash
-dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "20" --project src/BJK.Idsrv.Host   # photo ID needed
-dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "15" --project src/BJK.Idsrv.Host   # under 18
-dotnet user-secrets set "AgeAssurance:Estimator:Development:Age" "0" --project src/BJK.Idsrv.Host    # can't tell
-dotnet user-secrets set "AgeAssurance:Document:Development:Age" "16" --project src/BJK.Idsrv.Host    # ID says under 18
-dotnet user-secrets set "AgeAssurance:Liveness:Development:Pass" "false" --project src/BJK.Idsrv.Host # liveness fails
+dotnet user-secrets set "AgeAssurance:Development:EstimatedAge" "20" --project src/BJK.Idsrv.Host   # photo ID needed
+dotnet user-secrets set "AgeAssurance:Development:EstimatedAge" "15" --project src/BJK.Idsrv.Host   # under 18
+dotnet user-secrets set "AgeAssurance:Development:EstimatedAge" "0" --project src/BJK.Idsrv.Host    # can't tell
+dotnet user-secrets set "AgeAssurance:Development:DocumentAge" "16" --project src/BJK.Idsrv.Host    # ID says under 18
+dotnet user-secrets set "AgeAssurance:Liveness:ModelPath" "" --project src/BJK.Idsrv.Host           # use the liveness stand-in...
+dotnet user-secrets set "AgeAssurance:Development:LivenessPasses" "false" --project src/BJK.Idsrv.Host # ...and make it fail
 ```
 
 To start again, reset the check as an admin (`POST /api/admin/users/{id}/age-check/reset`), or in SQL:
@@ -240,31 +237,24 @@ Then sign in again (or use the `.http` file's steps). The access token, ID token
 
 To try the under-18 paths, register with a date of birth 15 years ago: the token carries `"minor": "true"` and the age check page explains it's for adults. A date of birth 12 years ago is refused.
 
-**Trying the real liveness check (YuNet).** It runs on our servers:
+**The real liveness check (YuNet)** runs on our servers, locally too:
 1. ffmpeg samples frames from the video.
 2. OpenCV Zoo's YuNet face detector (MIT licence) runs through ONNX Runtime.
 3. The check looks for one face in most frames, turning clearly one way and then the other.
 
-To use it locally:
+The setup downloads `face_detection_yunet_2023mar.onnx` into `bjk-core/.local/models` and sets `AgeAssurance:Liveness:ModelPath`. By hand:
 
 ```bash
-brew install ffmpeg      # or apt-get install ffmpeg
 mkdir -p ~/bjk-models && curl -L -o ~/bjk-models/face_detection_yunet_2023mar.onnx \
   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
-dotnet user-secrets set "AgeAssurance:Liveness:Provider" "YuNet" --project src/BJK.Idsrv.Host
-dotnet user-secrets set "AgeAssurance:Liveness:YuNet:ModelPath" "$HOME/bjk-models/face_detection_yunet_2023mar.onnx" --project src/BJK.Idsrv.Host
+dotnet user-secrets set "AgeAssurance:Liveness:ModelPath" "$HOME/bjk-models/face_detection_yunet_2023mar.onnx" --project src/BJK.Idsrv.Host
 ```
 
-It's a basic check. It stops a photo held up to the camera, but not a replayed video or a mask. A passive anti-spoofing model (for example MiniFASNet, Apache-2.0) is the next step. The app won't start with `YuNet` selected and no model file.
+It's a basic check. It stops a photo held up to the camera, but not a replayed video or a mask; Yoti's own anti-spoofing runs on the frame it estimates from. The app won't start if the model path is set and there's no file.
 
-**A real age estimator** plugs in with `AgeAssurance:Estimator:Provider=Http`. The generic adapter:
-- POSTs the video as multipart/form-data (`VideoField`, default `video`);
-- sends `ApiKey` in `ApiKeyHeader` (default `Authorization: Bearer …`);
-- reads the age from the JSON response at `AgePath` (and optionally a margin of error at `UncertaintyPath`).
+**Yoti** estimates the age when `AgeAssurance:Yoti:SdkId` and `PrivateKey` are set (from the Yoti Hub; `BaseUrl` is their sandbox for DEV and QA). One frame from the start of the video is sent to Yoti's `/age-antispoofing`, never the video. To try Yoti's sandbox locally, put its keys in your user-secrets.json and run the setup. Photo ID through Yoti isn't built yet.
 
-Set `AgeAssurance:Estimator:Http:Endpoint` to the vendor's https address. A vendor with a different API gets its own `IAgeEstimator`. No photo-ID vendor is wired up yet; that's a new `IDocumentAgeCheck`.
-
-**Outside Development**, the app refuses to start with any `Development` age check provider.
+**Outside Development**, the app refuses to start unless every step has a real provider: the liveness model, Yoti's keys, and (still to build) photo ID.
 
 ### The API walkthrough
 
@@ -317,17 +307,16 @@ docker exec -it bad-jockeys-sql-server bash -c '/opt/mssql-tools18/bin/sqlcmd -S
 
 ### Email
 
-Emails go through the Email module from bjk-modules. Locally `Email:Provider` is `Log`, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
+Emails go through the Email module from bjk-modules. Locally there's no SendGrid key, so nothing is sent: in Development each email (including the confirmation link, sign-in code and password reset code) is written to the app console as a warning starting `DEVELOPMENT ONLY - email not sent`. Only the plain-text version is logged.
 
 To send real emails from your machine, for example to see the HTML version in your inbox:
 
 ```bash
-dotnet user-secrets set "Email:Provider" "SendGrid" --project src/BJK.Idsrv.Host
 dotnet user-secrets set "Email:SendGrid:ApiKey" "<a key with the Mail Send permission>" --project src/BJK.Idsrv.Host
 dotnet user-secrets set "Email:FromAddress" "<an address verified in SendGrid>" --project src/BJK.Idsrv.Host
 ```
 
-The app won't start if `Provider` is `SendGrid` and the key or sender is missing. Set `Email:SendGrid:SandboxMode` to `true` to have SendGrid check requests without delivering them.
+With a key set, the app won't start if the sender is missing. Set `Email:SendGrid:SandboxMode` to `true` to have SendGrid check requests without delivering them.
 
 ### CAPTCHA
 
@@ -379,7 +368,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <Name> --project src
 
 ## Troubleshooting
 
-- **`Messaging:ConnectionStringName must name the connection string for bjk-core's app database`**: add `ConnectionStrings:Messaging`, `Messaging:ConnectionStringName` and `Messaging:CreateTables` from the template to your user secrets (step 4).
+- **`Connection string 'BadJockeysDatabase' is not configured`**: add `ConnectionStrings:BadJockeysDatabase` from the template to your user secrets (step 4). Older files called it `Messaging`: the bjk-core setup renames it.
 - **`No queue subscribes to 'bjk.users' yet`** in the log: bjk-core hasn't started against this SQL Server yet. Events wait in `users.Outbox` until it has.
 - **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d --wait` in bjk-core to start from empty databases.
 - **`NU1301` / `401 Unauthorized` on restore**: the NuGet token variable isn't set in this terminal, or has expired (step 2). Check with `echo $NuGetPackageSourceCredentials_badjockeys`.

@@ -7,7 +7,7 @@ namespace BJK.Idsrv.Host.Tests;
 
 public sealed class SignUpCountryTests
 {
-    private static readonly SignUpOptions BehindCloudflare = new() { TrustCloudflareCountryHeader = true };
+    private static readonly SignUpOptions BehindCloudflare = new();
 
     [Theory]
     [InlineData("GB", true)]
@@ -32,7 +32,7 @@ public sealed class SignUpCountryTests
     [Fact]
     public void The_allowed_list_is_configurable()
     {
-        var settings = new SignUpOptions { TrustCloudflareCountryHeader = true, AllowedCountries = ["GB", "IE"] };
+        var settings = new SignUpOptions { AllowedCountries = ["GB", "IE"] };
 
         Assert.True(SignUpCountryPolicy.Decide("IE", settings, false).Allowed);
         Assert.False(SignUpCountryPolicy.Decide("FR", settings, false).Allowed);
@@ -45,38 +45,39 @@ public sealed class SignUpCountryTests
     }
 
     [Fact]
-    public void In_Development_the_header_is_ignored_unless_trusted()
+    public void In_Development_no_header_means_allowed_and_a_header_is_still_read()
     {
         var settings = new SignUpOptions();
 
-        Assert.True(SignUpCountryPolicy.Decide("FR", settings, isDevelopment: true).Allowed);
         Assert.True(SignUpCountryPolicy.Decide(null, settings, isDevelopment: true).Allowed);
+        Assert.False(SignUpCountryPolicy.Decide("FR", settings, isDevelopment: true).Allowed);
+        Assert.True(SignUpCountryPolicy.Decide("GB", settings, isDevelopment: true).Allowed);
     }
 
     [Fact]
     public void In_Development_an_override_country_can_be_set()
     {
         Assert.False(SignUpCountryPolicy.Decide(null, new SignUpOptions { DevelopmentCountry = "FR" }, isDevelopment: true).Allowed);
-        Assert.True(SignUpCountryPolicy.Decide("FR", new SignUpOptions { DevelopmentCountry = "GB" }, isDevelopment: true).Allowed);
+        Assert.True(SignUpCountryPolicy.Decide(null, new SignUpOptions { DevelopmentCountry = "GB" }, isDevelopment: true).Allowed);
     }
 
     [Fact]
-    public void An_untrusted_header_is_never_believed_outside_Development()
+    public void Outside_Development_the_local_override_is_ignored_and_the_header_decides()
     {
-        Assert.False(SignUpCountryPolicy.Decide("GB", new SignUpOptions(), isDevelopment: false).Allowed);
+        Assert.False(SignUpCountryPolicy.Decide("FR", new SignUpOptions { DevelopmentCountry = "GB" }, isDevelopment: false).Allowed);
+        Assert.True(SignUpCountryPolicy.Decide("GB", new SignUpOptions(), isDevelopment: false).Allowed);
     }
 
     [Fact]
-    public void Startup_requires_the_trusted_header_outside_Development()
+    public void Startup_refuses_the_local_override_and_bad_codes_outside_Development()
     {
         var production = Substitute.For<IHostEnvironment>();
         production.EnvironmentName.Returns("Production");
         var validator = new SignUpOptionsValidator(production);
 
-        Assert.True(validator.Validate(null, new SignUpOptions()).Failed);
-        Assert.True(validator.Validate(null, new SignUpOptions { TrustCloudflareCountryHeader = true, DevelopmentCountry = "GB" }).Failed);
-        Assert.True(validator.Validate(null, new SignUpOptions { TrustCloudflareCountryHeader = true, AllowedCountries = ["GBR"] }).Failed);
-        Assert.True(validator.Validate(null, BehindCloudflare).Succeeded);
+        Assert.True(validator.Validate(null, new SignUpOptions { DevelopmentCountry = "GB" }).Failed);
+        Assert.True(validator.Validate(null, new SignUpOptions { AllowedCountries = ["GBR"] }).Failed);
+        Assert.True(validator.Validate(null, new SignUpOptions()).Succeeded);
     }
 
     [Fact]

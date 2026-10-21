@@ -25,14 +25,8 @@ public sealed class SignUpOptions
     public IReadOnlyList<string> EffectiveAllowedCountries => AllowedCountries.Length == 0 ? ["GB"] : AllowedCountries;
 
     /// <summary>
-    /// True behind Cloudflare (every deployed environment): the country comes from <see cref="CountryHeader"/>, and
-    /// a missing header means no sign-up. Must be true outside Development, since anyone can send the header to a
-    /// server Cloudflare doesn't front.
-    /// </summary>
-    public bool TrustCloudflareCountryHeader { get; set; }
-
-    /// <summary>
-    /// Development only, when the header isn't trusted: the country to pretend the visitor is in, e.g. "FR" to see the
+    /// Local only (refused outside Development, where the country always comes from Cloudflare's
+    /// <see cref="CountryHeader"/>): with no header, the country to pretend the visitor is in, e.g. "FR" to see the
     /// refusal. Empty: sign-up is allowed.
     /// </summary>
     public string? DevelopmentCountry { get; set; }
@@ -67,23 +61,17 @@ public sealed class SignUpCountryPolicy(
     /// <param name="isDevelopment">True in the Development environment.</param>
     public static SignUpCountryDecision Decide(string? header, SignUpOptions settings, bool isDevelopment)
     {
-        string? country;
-        if (settings.TrustCloudflareCountryHeader)
-        {
-            country = Normalise(header);
-        }
-        else if (isDevelopment)
+        // Deployed, Cloudflare fronts every request (the apps have no public address), so its header is trusted and a
+        // missing one means no sign-up. Locally there's no Cloudflare: without the header, DevelopmentCountry stands in
+        // for it, and without that sign-up is allowed. A header sent locally (tests) is still read.
+        var country = Normalise(header);
+        if (country is null && isDevelopment && string.IsNullOrWhiteSpace(header))
         {
             country = Normalise(settings.DevelopmentCountry);
             if (country is null)
             {
                 return new SignUpCountryDecision(true, "unchecked");
             }
-        }
-        else
-        {
-            // Startup refuses this combination; refuse rather than trust a header anyone could send.
-            return new SignUpCountryDecision(false, "untrusted");
         }
 
         // Cloudflare sends XX when it doesn't know and T1 for Tor: neither is an allowed country.
@@ -99,19 +87,12 @@ public sealed class SignUpCountryPolicy(
     }
 }
 
-/// <summary>Refuses outside Development unless the Cloudflare header is trusted, and checks the country codes.</summary>
+/// <summary>Checks the country codes, and that the local-only setting isn't used anywhere else.</summary>
 internal sealed class SignUpOptionsValidator(IHostEnvironment environment) : IValidateOptions<SignUpOptions>
 {
     public ValidateOptionsResult Validate(string? name, SignUpOptions options)
     {
         var failures = new List<string>();
-        if (!environment.IsDevelopment() && !options.TrustCloudflareCountryHeader)
-        {
-            failures.Add(
-                "SignUp:TrustCloudflareCountryHeader must be true outside Development (sign-up is limited by the visitor's country, "
-                + "which comes from Cloudflare's CF-IPCountry header).");
-        }
-
         if (!environment.IsDevelopment() && !string.IsNullOrWhiteSpace(options.DevelopmentCountry))
         {
             failures.Add("SignUp:DevelopmentCountry is for local development only.");
