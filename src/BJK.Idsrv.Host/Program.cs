@@ -168,8 +168,7 @@ builder.Services.RequireWhenDeployed("Email:PublicOrigin", "this server's https 
 builder.Services.RequireWhenDeployed("Email:PasswordResetUrl", "the https address of the reset password page", DeployedSettingChecks.IsHttps);
 builder.Services.RequireWhenDeployed("Clients:Web:RedirectUris:0", "the web app's https sign-in callback", DeployedSettingChecks.IsHttps);
 builder.Services.RequireWhenDeployed("Clients:Web:Secret", "the web app's client secret");
-builder.Services.RequireWhenDeployed(
-    "Captcha:TurnstileSecretKey", "the real Turnstile secret key, not one of Cloudflare's test keys", v => !TurnstileTestKeys.IsTestKey(v));
+// Captcha:TurnstileSecretKey is checked by BJK.Modules.Safety (AddCaptcha).
 builder.Services.RequireWhenDeployed(
     "Captcha:TurnstileSiteKey", "the real Turnstile site key, not one of Cloudflare's test keys", v => !TurnstileTestKeys.IsTestKey(v));
 

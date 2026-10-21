@@ -1,3 +1,4 @@
+using BJK.Modules.Safety;
 using BJK.Modules.User.API.Controllers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -35,7 +36,7 @@ internal sealed class CaptchaFilter(ICaptchaVerifier verifier) : IAsyncActionFil
             return;
         }
 
-        switch (await verifier.VerifyAsync(token, context.HttpContext.RequestAborted))
+        switch (await verifier.VerifyAsync(token, null, context.HttpContext.RequestAborted))
         {
             case CaptchaResult.Passed:
                 await next();

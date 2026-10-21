@@ -11,6 +11,7 @@
     <PackageVersion Include="BJK.Modules.Email" Version="0.2.0-ci.128" />
     <PackageVersion Include="BJK.Modules.SMS" Version="0.2.0-ci.128" />
     <PackageVersion Include="BJK.Modules.Queues" Version="0.2.0-ci.128" />
+    <PackageVersion Include="BJK.Modules.Safety" Version="0.2.0-ci.128" />
     <PackageVersion Include="BJK.Modules.Observability" Version="0.2.0-ci.128" />
 
     <PackageVersion Include="Duende.IdentityServer.AspNetIdentity" Version="8.0.9" />

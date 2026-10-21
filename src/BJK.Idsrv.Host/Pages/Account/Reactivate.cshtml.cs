@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using BJK.Idsrv.Host.Data;
 using BJK.Idsrv.Host.Services;
-using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Modules.Safety;
 using BJK.Modules.User.UseCases.Reactivate;
 using ValidationException = FluentValidation.ValidationException;
 using MediatR;

@@ -1,4 +1,5 @@
 using BJK.Idsrv.Host.Services.Captcha;
+using BJK.Modules.Safety;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -16,10 +17,10 @@ internal static class PageHelpers
         ICaptchaVerifier verifier,
         ModelStateDictionary modelState)
     {
-        var token = request.Form[CaptchaOptions.FormField].ToString();
+        var token = request.Form[TurnstileWidgetOptions.FormField].ToString();
         var result = string.IsNullOrWhiteSpace(token)
             ? CaptchaResult.Failed
-            : await verifier.VerifyAsync(token, request.HttpContext.RequestAborted);
+            : await verifier.VerifyAsync(token, null, request.HttpContext.RequestAborted);
 
         switch (result)
         {
