@@ -56,7 +56,7 @@ This runs SQL Server 2022 on `localhost,1433`. Both this server's `idsrv` databa
 
 No environment settings live in the repo's appsettings files. Locally they come from .NET user secrets, which are stored in your home folder (`~/.microsoft/usersecrets/bjk-identity-server/secrets.json`), never in the repo, and only load in Development.
 
-`user-secrets.template.json` in the repo root lists every setting with its local value. bjk-core's setup writes your copy straight into the user secrets (with the SQL password from `bjk-core/.env` and the model paths filled in), and after that only adds or renames settings, never overwrites yours.
+`user-secrets.template.json` in the repo root lists every setting. Keys and passwords are blank (`""`): supplier keys you'd get yourself (SendGrid, Yoti, Google, Apple, Facebook) stay empty locally, and bjk-core's setup fills in what it knows when it writes your copy straight into the user secrets (the SQL password from `bjk-core/.env` in place of `Password=;`, the liveness model path, Cloudflare's Turnstile test keys). After that it only adds or renames settings, never overwrites yours.
 
 To view or change them, right-click `src/BJK.Idsrv.Host/BJK.Idsrv.Host.csproj` → **Manage User Secrets** (VS Code with Microsoft's C# Dev Kit, or Visual Studio; in Rider, **Tools → .NET User Secrets**), or open the file: `code ~/.microsoft/usersecrets/bjk-identity-server/secrets.json`. Save and restart the identity server. (Before 22 Oct 2026 the setup kept a copy in `user-secrets.json` here and reloaded it every run; the next run moves it in and renames it `user-secrets.json.moved`.)
 
@@ -66,10 +66,10 @@ To view or change them, right-click `src/BJK.Idsrv.Host/BJK.Idsrv.Host.csproj` �
 | `Email:SendGrid:ApiKey` | Empty: emails go to the console instead of being sent (see Email below). |
 | `Email:FromAddress` | Placeholder sender |
 | `Email:PublicOrigin`, `Email:PasswordResetUrl` | This server's address, used in confirmation and reset links |
-| `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Cloudflare's public test keys (see CAPTCHA below) |
+| `Captcha:TurnstileSecretKey`, `Captcha:TurnstileSiteKey` | Empty in the template; required even locally, so the setup puts in Cloudflare's public test keys (see CAPTCHA below) |
 | `ConnectionStrings:BadJockeysDatabase` | bjk-core's `badjockeys` database in the same Docker SQL Server, where user lifecycle events are queued for bjk-core. Locally `sa`; in Azure a login that may only add rows to the queue tables (see the bjk-modules README, "Messaging"). |
 | `Clients:Web`, `Clients:Mobile`, `Clients:Backoffice` | Where each app gets sent back to after sign-in, and the web and back-office secrets. A client exists only if its `RedirectUris` are set. |
-| `Admin:BootstrapEmails` | Your email, to make yourself the first Admin (see Staff roles below) |
+| `Admin:BootstrapEmails` | Empty. Add your email once you've registered and confirmed it, to make yourself the first Admin (see Staff roles below) |
 | `SignUp:*` | UK-only sign-up. Locally there's no Cloudflare header, so sign-up is allowed (see UK-only sign-up below) |
 | `AgeAssurance:*` | The real head-turn check (the setup sets `Liveness:ModelPath`), and stand-ins for Yoti that answer age 30 (`Development`; see Age policy below) |
 | `Support:Email` | Where "Contact support" emails go. Default `support@badjockeys.com` |
