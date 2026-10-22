@@ -4,7 +4,7 @@ Identity server for the Bad Jockeys platform. It signs users in, issues tokens t
 
 ```
 .github/workflows/   CI (GitHub Actions only reads workflows from here)
-user-secrets.template.json   the settings each developer loads into user secrets
+user-secrets.template.json   every local setting; bjk-core's setup writes it into your .NET user secrets
 docs/                local-development.md: run it on your machine
 pipelines/           scripts the workflows call (end-to-end smoke test)
 src/
@@ -37,7 +37,7 @@ All three share one Azure SQL database (`idsrv`). Each part has its own schema a
 
 ## Configuration
 
-Locally everything comes from your user secrets (`user-secrets.template.json`, loaded by the setup) and no supplier account is needed: email goes to the log, and the age check, CAPTCHA and social sign-in use stand-ins or are off. The table below is every setting; [Going live](#going-live) lists what a deployed environment must change.
+Locally everything comes from your .NET user secrets (made from `user-secrets.template.json` by bjk-core's setup; edit them with Manage User Secrets) and no supplier account is needed: email goes to the log, and the age check, CAPTCHA and social sign-in use stand-ins or are off. The table below is every setting; [Going live](#going-live) lists what a deployed environment must change.
 
 | Key | Notes |
 |---|---|
@@ -63,7 +63,7 @@ Locally everything comes from your user secrets (`user-secrets.template.json`, l
 | `Support:Email` | Default `support@badjockeys.com`; checked at startup. The "Contact support" link after a failed age check opens an email to it, with the attempt's reference (`AGE-XXXXXX`) in the subject. It's a mailto link for now; a ticketing system (e.g. Zammad, Freshdesk or Help Scout) replaces it once email passes about 50 tickets a week. |
 | `Captcha:TurnstileSecretKey` | Cloudflare Turnstile secret. Required. Development uses Cloudflare's test key; register, forgot password and reactivate need an `X-Captcha-Token` header. Checked by the Turnstile verifier in `BJK.Modules.Safety` (the same one core uses). |
 
-Locally these come from .NET user secrets: load them from `user-secrets.template.json`. When deployed they come from the container's settings, with secrets as container secrets. The appsettings files hold no environment settings, and no secrets are stored in the repo.
+Locally these come from .NET user secrets, made from `user-secrets.template.json` by bjk-core's setup. When deployed they come from the container's settings, with secrets as container secrets. The appsettings files hold no environment settings, and no secrets are stored in the repo.
 
 ### Going live
 

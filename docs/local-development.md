@@ -52,18 +52,13 @@ This runs SQL Server 2022 on `localhost,1433`. Both this server's `idsrv` databa
 
 > SQL Server used to run from a `docker-compose.yml` in this repo, with the password in this repo's `.env`. bjk-core's scripts remove the old Docker group and carry that password over to `bjk-core/.env`, so your user secrets keep working.
 
-## 4. Load your settings into user secrets
+## 4. Your settings: .NET user secrets
 
 No environment settings live in the repo's appsettings files. Locally they come from .NET user secrets, which are stored in your home folder (`~/.microsoft/usersecrets/bjk-identity-server/secrets.json`), never in the repo, and only load in Development.
 
-`user-secrets.template.json` in the repo root lists every setting with its local value. To load it:
+`user-secrets.template.json` in the repo root lists every setting with its local value. bjk-core's setup writes your copy straight into the user secrets (with the SQL password from `bjk-core/.env` and the model paths filled in), and after that only adds or renames settings, never overwrites yours.
 
-```bash
-cp user-secrets.template.json user-secrets.json      # user-secrets.json is git-ignored
-# edit user-secrets.json: put the password from bjk-core/.env into both connection strings
-dotnet user-secrets set --project src/BJK.Idsrv.Host < user-secrets.json
-dotnet user-secrets list --project src/BJK.Idsrv.Host    # check they're all there
-```
+To view or change them, right-click `src/BJK.Idsrv.Host/BJK.Idsrv.Host.csproj` → **Manage User Secrets** (VS Code with Microsoft's C# Dev Kit, or Visual Studio; in Rider, **Tools → .NET User Secrets**), or open the file: `code ~/.microsoft/usersecrets/bjk-identity-server/secrets.json`. Save and restart the identity server. (Before 22 Oct 2026 the setup kept a copy in `user-secrets.json` here and reloaded it every run; the next run moves it in and renames it `user-secrets.json.moved`.)
 
 | Setting | Local value |
 |---|---|
@@ -171,7 +166,7 @@ In the deployed environments Cloudflare adds a `CF-IPCountry` header with the vi
 
 The log records only the country code and the outcome, e.g. `Sign-up country check: FR refused`, never the IP address.
 
-Locally there's no Cloudflare, so there's no header and sign-up is allowed. To see the refusal, pretend to be elsewhere (in your user-secrets.json, then run the setup, or for this session only):
+Locally there's no Cloudflare, so there's no header and sign-up is allowed. To see the refusal, pretend to be elsewhere (in your user secrets, then restart, or for this session only):
 
 ```bash
 dotnet user-secrets set "SignUp:DevelopmentCountry" "FR" --project src/BJK.Idsrv.Host   # refused
@@ -216,7 +211,7 @@ The video and photo stay in memory and are wiped after the check. Only the outco
 
 So you can test without a vendor. On a laptop the page works on `https://localhost:5001`, since browsers only allow the camera over HTTPS or on localhost.
 
-To try each path, change the answers in `AgeAssurance:Development` in your user-secrets.json, run the setup (or `dotnet user-secrets set` for this session) and restart:
+To try each path, change the answers in `AgeAssurance:Development` in your user secrets (Manage User Secrets) and restart:
 
 ```bash
 dotnet user-secrets set "AgeAssurance:Development:EstimatedAge" "20" --project src/BJK.Idsrv.Host   # photo ID needed
