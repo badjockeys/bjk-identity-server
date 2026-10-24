@@ -12,7 +12,8 @@ GitHub Actions only runs workflow files from `.github/workflows/`, so the workfl
 
 | Job | When | Steps |
 |---|---|---|
-| `build` | Every pull request and every push to master | Restore, build, unit tests, check migrations, build the container image (x86-64), check it has the liveness model and ffmpeg and doesn't run as root, then the smoke test against that image |
+| `changes` | Every pull request and every push to master | Checks whether anything but documentation changed. When only Markdown files or `docs/` changed, the jobs below are skipped, which still counts as passing |
+| `build` | Every pull request and every push to master, unless only documentation changed | Restore, build, unit tests, check migrations, build the container image (x86-64), check it has the liveness model and ffmpeg and doesn't run as root, then the smoke test against that image |
 | `publish` | Push to master, after `build` passes | Builds the image again on an x86-64 and an ARM runner (the x86-64 one reuses `build`'s cached layers) and pushes each to GHCR by digest |
 | `tag` | After `publish` | Joins the two into one image and tags it `ghcr.io/badjockeys/bjk-identity-server:<full sha>`, `:<first 7 characters>` and `:latest` |
 

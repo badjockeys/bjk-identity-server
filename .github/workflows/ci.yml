@@ -34,7 +34,35 @@ env:
   Clients__Web__Secret: ci-web-secret
 
 jobs:
+  # Whether anything but documentation changed. When only Markdown files or docs/ changed, the jobs below are
+  # skipped, which still counts as passing for the required "build" check, so docs-only pull requests can merge
+  # without spending minutes on a build.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # No usable base (a new branch, or history that isn't here): build to be safe.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+          if grep -qvE '(\.md$|^docs/)' <<< "$files"; then code=true; else code=false; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Changes::$( [ "$code" = true ] && echo 'Code changed: building.' || echo 'Documentation only: build skipped.')"
+
+
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     services:
