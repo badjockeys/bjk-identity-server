@@ -300,7 +300,7 @@ XSRF=$(grep -o 'name="__RequestVerificationToken" type="hidden" value="[^"]*"' r
 [ -n "$XSRF" ] || XSRF=$(grep -o '__RequestVerificationToken[^>]*value="[^"]*"' register.html | head -1 | sed 's/.*value="//; s/"$//')
 [ -n "$XSRF" ] || fail "No antiforgery token on the sign-up page."
 grep -q 'autocomplete="bday-year"' register.html || fail "The sign-up page doesn't ask for the date of birth."
-grep -q "<legend>Date of birth</legend>" register.html || fail "The date of birth isn't in a labelled fieldset."
+grep -q "<legend>Date of birth" register.html || fail "The date of birth isn't in a labelled fieldset."
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' -D headers.txt -c cookies.txt -b cookies.txt -X POST "$BASE_URL/Account/Register" \
   --data-urlencode "__RequestVerificationToken=$XSRF" --data-urlencode "Input.Email=$EMAIL4" \
   --data-urlencode "Input.Password=$PASSWORD" --data-urlencode "Input.ConfirmPassword=$PASSWORD" \

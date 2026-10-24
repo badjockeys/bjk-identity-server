@@ -10,7 +10,7 @@
     var describedBy = errors.Count > 0 ? $"{id}-hint {id}-error" : $"{id}-hint";
 }
 <fieldset class="dob" role="group" aria-describedby="@describedBy">
-    <legend>Date of birth</legend>
+    <legend>Date of birth <span class="req" aria-hidden="true">*</span></legend>
     <p class="hint" id="@id-hint">For example, 27 3 2010. You need to be 13 or over to join.</p>
     @if (errors.Count > 0)
     {
@@ -19,15 +19,15 @@
     <div class="dob-boxes">
         <div>
             <label asp-for="Day">Day</label>
-            <input asp-for="Day" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-day" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+            <input asp-for="Day" type="text" required inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-day" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
         </div>
         <div>
             <label asp-for="Month">Month</label>
-            <input asp-for="Month" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-month" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+            <input asp-for="Month" type="text" required inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="bday-month" class="dob-2" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
         </div>
         <div>
             <label asp-for="Year">Year</label>
-            <input asp-for="Year" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="bday-year" class="dob-4" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
+            <input asp-for="Year" type="text" required inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="bday-year" class="dob-4" aria-invalid="@(errors.Count > 0 ? "true" : "false")" />
         </div>
     </div>
 </fieldset>
