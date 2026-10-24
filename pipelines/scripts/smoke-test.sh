@@ -8,7 +8,8 @@
 # the restart, estimates of 15 (and an ID saying 16) fail. The same restart sends Cloudflare's CF-IPCountry header:
 # sign-up from GB works, from FR it's refused.
 #
-# Expects the app to be built (Release) and these environment variables:
+# Runs the container image named in APP_IMAGE when that's set (CI), otherwise the Release build (dotnet run).
+# Expects the app to be built (Release) or the image to exist, and these environment variables:
 #   ConnectionStrings__IdentityDatabase  connection string the app uses
 #   SQL_CONTAINER, SQL_PASSWORD          docker container running SQL Server, and its sa password
 #   ASPNETCORE_ENVIRONMENT=Development   (the local test clients only exist in Development)
@@ -41,6 +42,7 @@ DUMMY_CAPTCHA='XXXX.DUMMY.TOKEN.XXXX'
 CAPTCHA=$DUMMY_CAPTCHA   # sent as X-Captcha-Token on every request; set to "" to leave it out
 
 APP_PID=""
+APP_CONTAINER=bjk-smoke-identity-server
 PASSED=()
 : > "$APP_LOG"
 
@@ -51,15 +53,37 @@ fail() { echo "::error::$1"; exit 1; }
 on_exit() {
   local status=$?
   if [ -n "$APP_PID" ]; then kill "$APP_PID" 2>/dev/null || true; fi
+  if [ -n "${APP_IMAGE:-}" ]; then docker rm -f "$APP_CONTAINER" > /dev/null 2>&1 || true; fi
   if [ $status -ne 0 ]; then
     echo "::error title=App log (last 40 lines)::$(tail -40 "$APP_LOG" | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
   fi
 }
 trap on_exit EXIT
 
+# launch [VAR=value ...] [-- APP_ARGS ...]  - runs the identity server in the foreground with these extra settings:
+# the container image in APP_IMAGE when that's set (CI tests the image it's about to publish), otherwise the Release
+# build. The app's settings (Section__Key) and the ASP.NET Core, .NET and OpenTelemetry variables are passed into the
+# container; it shares the runner's network, so localhost means the same as for dotnet run. LAUNCH_NAME=<name> names
+# the container, so it can be stopped with docker stop (killing the docker run client doesn't reliably stop it).
+launch() {
+  local vars=() args=() names passthrough=() name
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "--" ]; then shift; args=("$@"); break; fi
+    vars+=("$1"); shift
+  done
+  if [ -n "${APP_IMAGE:-}" ]; then
+    names=$(env "${vars[@]}" | grep -oE '^([A-Za-z0-9]+__[A-Za-z0-9_-]+|ASPNETCORE_[A-Z_]+|DOTNET_[A-Z_]+|OTEL_[A-Z_]+)=' | tr -d '=' || true)
+    for name in $names; do passthrough+=(-e "$name"); done
+    env "${vars[@]}" docker run --rm --network host ${LAUNCH_NAME:+--name "$LAUNCH_NAME"} "${passthrough[@]}" "$APP_IMAGE" "${args[@]}"
+  else
+    env "${vars[@]}" dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- "${args[@]}"
+  fi
+}
+
 # start_app [VAR=value ...]  - extra settings apply to this run of the app only
 start_app() {
-  env "$@" dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile >> "$APP_LOG" 2>&1 &
+  if [ -n "${APP_IMAGE:-}" ]; then docker rm -f "$APP_CONTAINER" > /dev/null 2>&1 || true; fi
+  LAUNCH_NAME=$APP_CONTAINER launch "$@" >> "$APP_LOG" 2>&1 &
   APP_PID=$!
   for _ in $(seq 1 60); do
     if curl -fs "$BASE_URL/health" > /dev/null 2>&1; then echo "ok  app is healthy"; return; fi
@@ -70,7 +94,9 @@ start_app() {
 }
 
 stop_app() {
-  kill "$APP_PID"
+  # The container: docker stop returns once it has shut down and freed the port.
+  if [ -n "${APP_IMAGE:-}" ]; then docker stop --time 30 "$APP_CONTAINER" > /dev/null 2>&1 || true; fi
+  kill "$APP_PID" 2>/dev/null || true
   wait "$APP_PID" 2>/dev/null || true
   APP_PID=""
 }
@@ -774,7 +800,7 @@ stop_app
 check_refuses_to_start() {
   local label=$1 expected=$2; shift 2
   local mark; mark=$(wc -l < "$APP_LOG")
-  env "$@" dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile >> "$APP_LOG" 2>&1 &
+  launch "$@" >> "$APP_LOG" 2>&1 &
   local pid=$!
   for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   if kill -0 "$pid" 2>/dev/null; then kill "$pid"; fail "$label: the app kept running."; fi
@@ -790,11 +816,11 @@ check_refuses_to_start "won't start outside Development without a certificate fo
 check_refuses_to_start "won't start with a liveness model path that doesn't exist" "must point to face_detection_yunet_2023mar.onnx" AgeAssurance__Liveness__ModelPath=/nowhere/yunet.onnx
 
 # --check-settings: passes with local settings in Development; anywhere else lists every missing setting and exits 1.
-dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1 \
+launch -- --check-settings > check.log 2>&1 \
   || { cat check.log; fail "--check-settings failed in Development."; }
 grep -q "Settings check passed" check.log || fail "--check-settings didn't say it passed."
 echo "ok  --check-settings passes in Development"; PASSED+=("--check-settings passes in Development")
-if ASPNETCORE_ENVIRONMENT=Production dotnet run --project "$PROJECT" --configuration Release --no-build --no-launch-profile -- --check-settings > check.log 2>&1; then
+if launch ASPNETCORE_ENVIRONMENT=Production -- --check-settings > check.log 2>&1; then
   cat check.log; fail "--check-settings passed in Production with local settings."
 fi
 for expected in "Duende:LicenseKey is missing" "Email:SendGrid:ApiKey is missing" "SMS:Twilio:AccountSid is missing" \

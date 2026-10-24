@@ -9,6 +9,7 @@ docs/                local-development.md: run it on your machine
 pipelines/           scripts the workflows call (end-to-end smoke test)
 src/
   BJK.Idsrv.Host/
+    Dockerfile       the container image CI publishes to ghcr.io/badjockeys/bjk-identity-server
     Program.cs       wires up Identity, IdentityServer and the modules
     Config.cs        scopes and clients
     Data/            BjkIdentityDbContext and migrations
@@ -86,7 +87,7 @@ Secrets are container secrets; everything else is a container setting (Terraform
 | `Clients:Web` | `RedirectUris` e.g. `https://badjockeys.com/api/auth/callback/bjk`, `PostLogoutRedirectUris` `https://badjockeys.com/`, `Secret` (secret, matches the web app's `IDSRV_CLIENT_SECRET`) | The live domain |
 | `Clients:Backoffice` | The back office's addresses and secret | The back office (not built) |
 | `Authentication:Google`, `:Apple`, `:Facebook` (secrets) | Optional; each stays off until its keys are set | Developer accounts, if wanted |
-| `AgeAssurance:Liveness:ModelPath` | The YuNet model's path in the image (ffmpeg in the image too) | The model in the image |
+| `AgeAssurance:Liveness:ModelPath` | Set by the image: the YuNet model it carries, `/opt/bjk/models/face_detection_yunet_2023mar.onnx` (ffmpeg is in the image too) | |
 | `AgeAssurance:Yoti:SdkId`, `PrivateKey` (secret), `BaseUrl` | From the Yoti Hub; Yoti's sandbox address for DEV and QA, live for Staging and Live | A Yoti account |
 | Photo ID | **Not built yet**: Yoti's document check needs their hosted session flow. Until it's built, deployed environments won't start | Build it |
 | `Admin:BootstrapEmails` | The first admin's confirmed email | |
@@ -139,8 +140,14 @@ Each app gets its own login with only the roles it needs. Plain SQL logins keep 
 Local SQL Server runs in Docker from **bjk-core** (`docker-compose.yml`, Docker group `bad-jockeys`, password in `bjk-core/.env`), alongside the file storage. The quickest start is bjk-core's one-command setup (`setup.sh` on a Mac, `setup.ps1` on Windows), then F5 in the `badjockeys.code-workspace`. To run just this server:
 
 ```bash
-(cd ../bjk-core && docker compose up -d --wait)                   # SQL Server (and S3Mock) in Docker
-dotnet run --project src/BJK.Idsrv.Host --launch-profile https    # https://localhost:5001
+(cd ../bjk-core && docker compose --profile source up -d --wait)   # SQL Server (and S3Mock) in Docker
+dotnet run --project src/BJK.Idsrv.Host --launch-profile https     # https://localhost:5001
 ```
 
 First-time setup (NuGet feed token, connection string in user secrets, Docker on Apple Silicon) and a walkthrough: [docs/local-development.md](docs/local-development.md).
+
+### The container image
+
+Every push to master builds this server's image, runs the end-to-end smoke test against it, and publishes it for x86-64 and ARM (Apple silicon) to **`ghcr.io/badjockeys/bjk-identity-server`**, tagged with the commit's SHA (full and the first 7 characters) and `latest`. The deploy pipeline will roll out those same images. To run the published images on your machine with your own user secrets, use bjk-core's `release` profile: "Run the released build" in bjk-core's [docs/local-development.md](https://github.com/badjockeys/bjk-core/blob/master/docs/local-development.md#run-the-released-build).
+
+The image listens on port 8080 (plain HTTP: Container Apps' ingress, or the released build's shared network, sits in front). It carries ffmpeg and the YuNet liveness model, and sets `AgeAssurance:Liveness:ModelPath` to it. Everything else comes from environment variables. When `BJK_REQUIRE_USER_SECRETS=true` (set only by bjk-core's `release` profile), it refuses to start without your user secrets file, naming the path it looked in (`RequiredUserSecrets.cs`).
