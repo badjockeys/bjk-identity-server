@@ -93,13 +93,17 @@ public sealed class RegisterModel(
 
     public sealed class InputModel
     {
-        [Required, EmailAddress, StringLength(256)]
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter an email address like name@example.com.")]
+        [StringLength(256, ErrorMessage = "Email addresses are 256 characters or fewer.")]
         public string Email { get; set; } = string.Empty;
 
-        [Required, StringLength(100, MinimumLength = 8, ErrorMessage = "Passwords are at least 8 characters.")]
+        [Required(ErrorMessage = "Enter a password.")]
+        [StringLength(100, MinimumLength = 8, ErrorMessage = "Passwords are at least 8 characters.")]
         public string Password { get; set; } = string.Empty;
 
-        [Required, Compare(nameof(Password), ErrorMessage = "The passwords don't match.")]
+        [Required(ErrorMessage = "Enter your password again.")]
+        [Compare(nameof(Password), ErrorMessage = "The passwords don't match.")]
         public string ConfirmPassword { get; set; } = string.Empty;
 
         public DateOfBirthInput DateOfBirth { get; set; } = new();

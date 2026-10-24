@@ -8,18 +8,28 @@
 @* Visitors are sent here first (owner, 24 Oct 2026), so members can switch to signing in before the form. *@
 <p class="switch">Already have an account? <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Sign in</a></p>
 
+@*
+    Every field is needed (marked *). The browser checks for empty fields before sending, and each problem shows next to
+    its field; the box at the top is only for problems that aren't about one field (an email already in use, password
+    rules, the CAPTCHA). The button stays enabled: a greyed-out button can't say what's missing (GOV.UK pattern).
+*@
 <form method="post">
-    <div asp-validation-summary="All" class="validation-summary-errors"></div>
+    <p class="hint required-note"><span class="req" aria-hidden="true">*</span> Required</p>
+    <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
     <input type="hidden" asp-for="ReturnUrl" />
 
-    <label asp-for="Input.Email">Email</label>
-    <input asp-for="Input.Email" type="email" autocomplete="email" autofocus />
+    <label asp-for="Input.Email">Email <span class="req" aria-hidden="true">*</span></label>
+    <span asp-validation-for="Input.Email" id="email-error"></span>
+    <input asp-for="Input.Email" type="email" autocomplete="email" autofocus required aria-describedby="email-error" />
 
-    <label asp-for="Input.Password">Password</label>
-    <input asp-for="Input.Password" type="password" autocomplete="new-password" />
+    <label asp-for="Input.Password">Password <span class="req" aria-hidden="true">*</span></label>
+    <p class="hint" id="password-hint">At least 8 characters.</p>
+    <span asp-validation-for="Input.Password" id="password-error"></span>
+    <input asp-for="Input.Password" type="password" autocomplete="new-password" required minlength="8" aria-describedby="password-hint password-error" />
 
-    <label asp-for="Input.ConfirmPassword">Confirm password</label>
-    <input asp-for="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+    <label asp-for="Input.ConfirmPassword">Confirm password <span class="req" aria-hidden="true">*</span></label>
+    <span asp-validation-for="Input.ConfirmPassword" id="confirm-error"></span>
+    <input asp-for="Input.ConfirmPassword" type="password" autocomplete="new-password" required aria-describedby="confirm-error" />
 
     <partial name="_DateOfBirth" for="Input.DateOfBirth" />
 
