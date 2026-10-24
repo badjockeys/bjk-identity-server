@@ -5,6 +5,8 @@
 }
 <h1>Create an account</h1>
 <p class="lead">You need to be 13 or over. You'll choose your @@handle and display name next.</p>
+@* Visitors are sent here first (owner, 24 Oct 2026), so members can switch to signing in before the form. *@
+<p class="switch">Already have an account? <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl">Sign in</a></p>
 
 <form method="post">
     <div asp-validation-summary="All" class="validation-summary-errors"></div>
