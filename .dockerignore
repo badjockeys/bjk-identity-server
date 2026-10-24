@@ -1,0 +1,10 @@
+# Keep local build output, secrets and test projects out of the image's build context.
+**/bin/
+**/obj/
+.git/
+.github/
+tests/
+docs/
+.env
+user-secrets.json
+*.log

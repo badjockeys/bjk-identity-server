@@ -39,16 +39,18 @@ SQL Server runs in Docker from **bjk-core**, so clone that next to this repo. It
 cd ../bjk-core
 cp .env.example .env
 # edit .env: BJK_SQL_PASSWORD=<8+ characters with upper case, lower case, a digit and a symbol>
-docker compose up -d --wait      # returns once SQL Server is healthy (about 30 seconds the first time)
+docker compose --profile source up -d --wait      # returns once SQL Server is healthy (about 30 seconds the first time)
 ```
+
+`--profile source` starts what the apps need when you run them from source (F5): SQL Server, the file storage and the logging containers. bjk-core's other profile, `release`, also runs the published app images, including this server's (see "Run the released build" in bjk-core's docs/local-development.md).
 
 This runs SQL Server 2022 on `localhost,1433`. Both this server's `idsrv` database and bjk-core's `badjockeys` database live there, and `badjockeys` also holds the message queues (schema `messaging`), so there's no separate message broker. The data lives in a Docker volume, so it's still there after `docker compose stop` or a reboot.
 
 | Command (in bjk-core) | Does |
 |---|---|
-| `docker compose stop` | Stops it and keeps the data |
-| `docker compose up -d --wait` | Starts it again |
-| `docker compose down -v` | Removes the containers **and all local data** (databases and stored files), so the next app start builds fresh databases |
+| `docker compose --profile source stop` | Stops it and keeps the data |
+| `docker compose --profile source up -d --wait` | Starts it again |
+| `docker compose --profile "*" down -v` | Removes the containers of both profiles **and all local data** (databases and stored files), so the next app start builds fresh databases |
 
 > SQL Server used to run from a `docker-compose.yml` in this repo, with the password in this repo's `.env`. bjk-core's scripts remove the old Docker group and carry that password over to `bjk-core/.env`, so your user secrets keep working.
 
@@ -365,12 +367,12 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <Name> --project src
 
 - **`Connection string 'BadJockeysDatabase' is not configured`**: add `ConnectionStrings:BadJockeysDatabase` from the template to your user secrets (step 4). Older files called it `Messaging`: the bjk-core setup renames it.
 - **`No queue subscribes to 'bjk.users' yet`** in the log: bjk-core hasn't started against this SQL Server yet. Events wait in `users.Outbox` until it has.
-- **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose down -v && docker compose up -d --wait` in bjk-core to start from empty databases.
+- **Upgrading from an older checkout**: the account tables changed before release. If startup complains about the `users` schema, run `docker compose --profile "*" down -v && docker compose --profile source up -d --wait` in bjk-core to start from empty databases.
 - **`NU1301` / `401 Unauthorized` on restore**: the NuGet token variable isn't set in this terminal, or has expired (step 2). Check with `echo $NuGetPackageSourceCredentials_badjockeys`.
 - **`Connection string 'IdentityDatabase' is not configured`** or **`Captcha:TurnstileSecretKey is required`**: your user secrets aren't loaded (step 4), or the app isn't running in Development. The `https` launch profile sets Development.
-- **`Login failed for user 'sa'`**: the password in your user secret doesn't match `bjk-core/.env`. If you changed `.env` after the container was first created, SQL Server still has the old password: in bjk-core run `docker compose down -v` (this deletes the local data) and `docker compose up -d --wait`.
-- **`A network-related or instance-specific error`**: SQL Server isn't running or isn't healthy yet. Check `docker compose ps` and `docker compose logs sql` in bjk-core.
+- **`Login failed for user 'sa'`**: the password in your user secret doesn't match `bjk-core/.env`. If you changed `.env` after the container was first created, SQL Server still has the old password: in bjk-core run `docker compose --profile "*" down -v` (this deletes the local data) and `docker compose --profile source up -d --wait`.
+- **`A network-related or instance-specific error`**: SQL Server isn't running or isn't healthy yet. Check `docker compose --profile source ps` and `docker compose logs sql` in bjk-core.
 - **`docker compose up` says "Set BJK_SQL_PASSWORD in bjk-core/.env"**: create `bjk-core/.env` from its `.env.example` (step 3).
-- **The SQL container keeps restarting on an Apple Silicon Mac**: turn on Rosetta emulation in Docker Desktop (step 1), then `docker compose up -d --wait` in bjk-core again.
+- **The SQL container keeps restarting on an Apple Silicon Mac**: turn on Rosetta emulation in Docker Desktop (step 1), then `docker compose --profile source up -d --wait` in bjk-core again.
 - **Port 1433 is already in use**: another SQL Server is running. Stop it, or change the left-hand port in bjk-core's `docker-compose.yml` (e.g. `"14330:1433"`) and use `Server=localhost,14330` in your user secret.
 - **Startup stops with "pending migrations would remove data"**: see Database changes above.

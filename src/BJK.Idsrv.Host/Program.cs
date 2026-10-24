@@ -27,6 +27,9 @@ const string MigrationsHistoryTable = "__EFMigrationsHistory";
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The released image on a developer's machine (bjk-core's compose "release" profile) must have their user secrets.
+RequiredUserSecrets.Check(builder.Environment);
+
 // Logs, traces and metrics over OTLP: locally Elastic's OpenTelemetry collector in bjk-core's Docker group
 // (launchSettings.json), Elastic Cloud when deployed. See "Logs, traces and metrics" in the bjk-modules README.
 builder.AddBjkObservability("bjk-identity-server");
