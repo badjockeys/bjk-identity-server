@@ -72,7 +72,7 @@ launch() {
     vars+=("$1"); shift
   done
   if [ -n "${APP_IMAGE:-}" ]; then
-    names=$(env "${vars[@]}" | grep -oE '^([A-Za-z0-9]+__[A-Za-z0-9_]+|ASPNETCORE_[A-Z_]+|DOTNET_[A-Z_]+|OTEL_[A-Z_]+)=' | tr -d '=' || true)
+    names=$(env "${vars[@]}" | grep -oE '^([A-Za-z0-9]+__[A-Za-z0-9_-]+|ASPNETCORE_[A-Z_]+|DOTNET_[A-Z_]+|OTEL_[A-Z_]+)=' | tr -d '=' || true)
     for name in $names; do passthrough+=(-e "$name"); done
     env "${vars[@]}" docker run --rm --network host ${LAUNCH_NAME:+--name "$LAUNCH_NAME"} "${passthrough[@]}" "$APP_IMAGE" "${args[@]}"
   else
